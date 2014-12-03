@@ -4,45 +4,26 @@ use audiotag::ErrorKind::{InvalidInputError, StringDecodingError, UnsupportedFea
 use id3v2::frame::field::Field;
 use id3v2::frame::{mod, Frame, Id, Encoding};
 use id3v2::Version;
-use util;
-
-/// The result of a successfully parsed frame.
-pub struct DecoderResult {
-    /// The text encoding used in the frame.
-    pub encoding: Encoding,
-    /// The parsed content of the frame.
-    pub fields: Vec<Field>
-}
-
-impl DecoderResult {
-    /// Creates a new `DecoderResult` with the provided encoding and contents.
-    #[inline]
-    pub fn new(encoding: Encoding, fields: Vec<Field>) -> DecoderResult {
-        DecoderResult { encoding: encoding, fields: fields }
-    }
-}
 
 pub struct DecoderRequest<'a> {
     pub id: Id,
-    pub encoding: Option<Encoding>,
     pub data: &'a [u8],
 }
 
 pub struct EncoderRequest<'a> {
     pub version: Version,
-    pub encoding: Encoding,
     pub fields: &'a [Field],
 }
 
-/*impl<'a> DecoderRequest<'a> {
+impl<'a> EncoderRequest<'a> {
     fn encoding(&self) -> Option<Encoding> {
-        if let Some(Field::TextEncoding(encoding)) = self.fields.get(0) {
+        if let Some(&Field::TextEncoding(encoding)) = self.fields.get(0) {
             Some(encoding)
         } else {
             None
         }
     }
-}*/
+}
 
 /// Creates a vector representation of the request.
 pub fn encode(request: EncoderRequest) -> Vec<u8> {
@@ -52,7 +33,7 @@ pub fn encode(request: EncoderRequest) -> Vec<u8> {
         None => 0u as *const _,
     };
     for i in request.fields.iter() {
-        i.serialize(&mut encoded, Some(request.encoding), i as *const _ == last, false/*unsync*/);
+        i.serialize(&mut encoded, request.encoding(), i as *const _ == last, false/*unsync*/);
     }
     encoded
 }

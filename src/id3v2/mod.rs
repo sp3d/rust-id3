@@ -181,6 +181,27 @@ impl Version {
             Encoding::UTF16
         }
     }
+
+    /// Returns whether an encoding is compatible with this version of tag.
+    ///
+    /// ID3v2.4 is compatible with UTF-8 and UTF-16be in addition to UTF-16 and
+    /// Latin-1, which are supported by v2.2 and v2.3.
+    pub fn encoding_compatible(&self, encoding: Encoding) -> bool {
+        if *self >= Version::V4 {
+            true
+        } else {
+            encoding == Encoding::UTF16 || encoding == Encoding::Latin1
+        }
+    }
+
+    /// Returns the encodings compatible with the frame's version.
+    #[inline]
+    fn compatible_encodings(&self) -> &[Encoding] {
+        match *self {
+            Version::V2|Version::V3 => static_arr!(Encoding, [Encoding::Latin1, Encoding::UTF16]),
+            Version::V4 => static_arr!(Encoding, [Encoding::Latin1, Encoding::UTF16, Encoding::UTF16BE, Encoding::UTF8]),
+        }
+    }
 }
 // Frame ID Querying {{{
     id_func!(artist_id, "TP1", "TPE1");

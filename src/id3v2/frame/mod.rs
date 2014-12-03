@@ -164,19 +164,6 @@ impl Frame {
         Some(frame)
     }
 
-    /// Returns an encoding compatible with the current version based on the requested encoding.
-    #[inline]
-    fn compatible_encoding(&self, requested_encoding: Encoding) -> Encoding {
-        if self.version() < Version::V4 {
-            match requested_encoding {
-                Encoding::Latin1 => Encoding::Latin1,
-                _ => Encoding::UTF16, // if UTF16BE or UTF8 is requested, just return UTF16
-            }
-        } else {
-            requested_encoding
-        }
-    }
-
     // Getters/Setters
     #[inline]
     /// Returns the encoding used by text data in this frame, if any.
@@ -189,11 +176,48 @@ impl Frame {
     }
 
     #[inline]
-    /// Sets the encoding used by text data in this frame. If the encoding is
-    /// not compatible with the frame version, another encoding will be chosen.
-    pub fn set_encoding(&mut self, encoding: Encoding) {
-        //TODO: this
-        //self.encoding = self.compatible_encoding(encoding);
+    /// Sets the encoding used by text data in this frame, and transcodes the
+    /// contents of `String`, `StringFull`, and `StringList` fields from the old
+    /// encoding to the new one. Returns `true` if successful.
+    ///
+    /// Returns `false` and does not modify the frame if the specified encoding
+    /// is not compatible with the frame's version.
+    ///
+    /// Returns `true` and does nothing if the frame does not begin with a
+    /// `TextEncoding` field.
+    pub fn set_encoding(&mut self, encoding: Encoding) -> bool {
+        if !self.version().encoding_compatible(encoding) {
+            return false;
+        }
+
+        let old_encoding;
+        if let Some(&Field::TextEncoding(ref mut enc)) = self.fields.get_mut(0) {
+            old_encoding = *enc;
+            *enc = encoding;
+        } else {
+            return false;
+        }
+
+        if old_encoding == encoding {
+            return true;
+        }
+
+        //TODO(sp3d): transcode strings!
+        for f in self.fields.iter_mut() {
+            match f {
+                &Field::String(ref mut s) => {
+                    
+                },
+                &Field::StringFull(ref mut s) => {
+                    
+                },
+                &Field::StringList(ref mut s) => {
+                    
+                },
+                _ => (),
+            }
+        }
+        true
     }
 
     #[inline]
@@ -249,15 +273,23 @@ impl Frame {
         self.id.version()
     }
 
-    /// Sets the version of the tag. This converts the frame identifier from the previous version
-    /// to the corresponding frame identifier in the new version.
+    /// Sets the version of the tag. This converts the frame identifier from its previous version
+    /// to the corresponding frame identifier in the new version, filling in empty or zero data
+    /// for new fields in the new frame layout, and removing fields which are not present in the
+    /// new layout. Text fields will be changed to UTF-16 if they were previously encoded as UTF-8
+    /// or UTF-16be and the new version does not support their old encoding.
     ///
     /// Returns `true` if the conversion was successful. Returns `false` if the frame identifier
     /// could not be converted.
+    ///
+    /// Warning: not fully implemented yet! Calling this *will* result in mangled tags!
+    #[deprecated = "not fully implemented yet!"]
     pub fn set_version(&mut self, to: Version) -> bool {
         use id3v2::Version::*;
-        // no-op if versions are equal or "compatible" like V3/V4 are
         let from = self.id;
+
+        // convert frame ID
+        // no-op if versions are equal or "compatible" like V3/V4 are
         match (from, to) {
             (x, y) if x.version() == y => { return true },
             (Id::V3(_), V4) | (Id::V4(_), V3) => { return true },
@@ -266,7 +298,7 @@ impl Frame {
                 self.id = match frameinfo::convert_id_3_to_2(id) {
                     Some(new_id) => Id::V2(new_id),
                     None => {
-                        debug!("no ID3v2.3 to ID3v2.3 mapping for {}", self.id);
+                        debug!("no ID3v2.3/4 to ID3v2.2 mapping for {}", self.id);
                         return false;
                     }
                 }
@@ -276,7 +308,7 @@ impl Frame {
                 self.id = match frameinfo::convert_id_2_to_3(id) {
                     Some(new_id) => (match to {V3 => Id::V3, V4 => Id::V4, _ => unreachable!() })(new_id),
                     None => {
-                        debug!("no ID3v2.2 to ID3v2.3 mapping for {}", self.id);
+                        debug!("no ID3v2.2 to ID3v2.3/4 mapping for {}", self.id);
                         return false;
                     }
                 };
@@ -289,8 +321,23 @@ impl Frame {
             _ => unreachable!(),
         }
 
-        let encoding = self.compatible_encoding(self.encoding().unwrap_or(Encoding::UTF8));
-        self.set_encoding(encoding);
+        //TODO(sp3d): convert frame format itself, adding/dropping fields!
+
+        // convert text fields to an encoding compatible with the new version
+        match (self.id.version(), to) {
+            // ID3v2.3 and ID3v2.2 do not support UTF-16BE or UTF-8 encodings
+            (V4, V3) | (V4, V2) => {
+                match self.encoding() {
+                    Some(Encoding::UTF16BE) | Some(Encoding::UTF8) => {
+                        self.set_encoding(Encoding::UTF16);
+                    },
+                    _ => (),
+                }
+            }
+            // encodings are forward-compatible and between ID3v2.2 and ID3v2.3
+            _ => (),
+        }
+        
         true
     }
 
@@ -321,7 +368,7 @@ impl Frame {
     /// Creates a vector representation of the fields of a frame suitable for writing to an ID3 tag.
     #[inline]
     pub fn fields_to_bytes(&self) -> Vec<u8> {
-        let request = EncoderRequest { version: self.version(), encoding: self.encoding().unwrap_or(self.id.version().default_encoding()), fields: self.fields.as_slice() };
+        let request = EncoderRequest { version: self.version(), fields: self.fields.as_slice() };
         parsers::encode(request)
     }
 
@@ -339,7 +386,6 @@ impl Frame {
 
         let result = try!(parsers::decode(DecoderRequest {
             id: self.id,
-            encoding: self.encoding(),
             data: match decompressed_opt {
                 Some(ref decompressed) => decompressed.as_slice(),
                 None => data
