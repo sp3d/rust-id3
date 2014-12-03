@@ -311,7 +311,8 @@ impl Frame {
     ///
     /// # Example
     /// ```
-    /// use id3::v2::{Frame, Version};
+    /// use id3::id3v2::Version;
+    /// use id3::id3v2::frame::{Frame, Id};
     ///
     /// let frame = Frame::new(Id::V4(*b"TALB"));
     /// assert_eq!(frame.version(), Version::V4)
@@ -465,7 +466,6 @@ impl Frame {
 #[cfg(test)]
 mod tests {
     use id3v2::frame::{Id, Frame, FrameFlags, Encoding};
-    use id3v2::Version;
     use util;
 
     #[test]

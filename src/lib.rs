@@ -23,15 +23,12 @@
 //! use id3::FileTags;
 //! use id3::id3v2::frame::Encoding;
 //!
-//! let mut tags = FileTags::from_tags(None, Some(id3v2::Tag::with_version(V4)));
+//! let mut v2 = id3v2::Tag::with_version(V4);
+//! let frame = Frame::new_text_frame(Id::V4(*b"TALB"), "my album", Encoding::UTF8).unwrap();
+//! v2.add_frame(frame);
 //! 
-//! // set the album the hardest way
-//! let mut frame = Frame::new_text_frame(Id::V4(*b"TALB"), "my album", Encoding::UTF8);
-//! tags.v2.as_mut().unwrap().add_frame(frame.unwrap());
-//!
-//! // or the slightly easier way
-//! tags.v2.as_mut().unwrap().add_text_frame(Id::V4(*b"TALB"), "my album");
-//!
+//! // store into a file, replacing any old ID3 tags in it
+//! let mut tags = FileTags::from_tags(None, Some(v2));
 //! tags.store_at_path(&std::path::Path::new("music.mp3")).unwrap();
 //! ```
 

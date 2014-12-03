@@ -3,6 +3,7 @@ extern crate id3;
 use id3::id3v2;
 use id3::id3v2::Version::*;
 use id3::id3v2::frame::{Frame, Id, Encoding};
+use id3::id3v2::simple::Simple;
 
 static ID: Id = Id::V4(*b"TRCK");
 static TRACK: u32 = 5;
