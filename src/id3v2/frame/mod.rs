@@ -40,7 +40,7 @@ pub enum Id {
 }
 
 impl Id {
-    /// Returns the ID3v2 Version to which an ID belongs
+    /// Returns the ID3v2 version to which an ID belongs
     #[inline]
     pub fn version(&self) -> Version {
         match *self {
@@ -222,13 +222,13 @@ impl Frame {
     }
 
     #[inline]
-    /// Returns whether the compression flag is set.
+    /// Returns whether the frame was stored using zlib compression.
     pub fn compression(&self) -> bool {
         self.flags.compression
     }
 
     #[inline]
-    /// Sets the compression flag.
+    /// Sets whether zlib compression will be used when storing the frame.
     pub fn set_compression(&mut self, compression: bool) {
         self.flags.compression = compression;
         if compression && self.version() >= Version::V4 {
@@ -237,27 +237,63 @@ impl Frame {
     }
 
     #[inline]
-    /// Returns whether the tag_alter_preservation flag is set.
+    /// Returns the frame's "tag alter preservation" flag.
+    ///
+    /// This flag indicates whether parsers which do *not* recognize this frame
+    /// should discard the frame upon modifying any aspect of its containing
+    /// tag. This includes modifications to padding and frame order.
     pub fn tag_alter_preservation(&self) -> bool {
         self.flags.tag_alter_preservation
     }
 
     #[inline]
-    /// Sets the tag_alter_preservation flag.
+    /// Sets the frame's "tag alter preservation" flag.
+    ///
+    /// This flag indicates whether parsers which do *not* recognize this frame
+    /// should discard the frame upon modifying any aspect of its containing
+    /// tag. This includes modifications to padding and frame order.
     pub fn set_tag_alter_preservation(&mut self, tag_alter_preservation: bool) {
         self.flags.tag_alter_preservation = tag_alter_preservation;
     }
 
     #[inline]
-    /// Returns whether the file_alter_preservation flag is set.
+    /// Returns the frame's "file alter preservation" flag.
+    ///
+    /// This flag indicates whether parsers which do *not* recognize this frame
+    /// should discard the frame upon modifying part (but not replacing all) of
+    /// the non-tag data in the file.
     pub fn file_alter_preservation(&self) -> bool {
         self.flags.file_alter_preservation
     }
 
     #[inline]
-    /// Sets the file_alter_preservation flag.
+    /// Sets the frame's "file alter preservation" flag.
+    ///
+    /// This flag indicates whether parsers which do *not* recognize this frame
+    /// should discard the frame upon modifying part (but not replacing all) of
+    /// the non-tag data in the file.
     pub fn set_file_alter_preservation(&mut self, file_alter_preservation: bool) {
         self.flags.file_alter_preservation = file_alter_preservation;
+    }
+
+    #[inline]
+    /// Returns the frame's "read only" flag.
+    ///
+    /// This flag indicates whether the frame is intended to be "read-only",
+    /// for example if the validity of other frames' data is depends on the
+    /// contents of the frame.
+    pub fn read_only(&self) -> bool {
+        self.flags.read_only
+    }
+
+    #[inline]
+    /// Sets the frame's "read only" flag.
+    ///
+    /// This flag indicates whether the frame is intended to be "read-only",
+    /// for example if the validity of other frames' data depends on the
+    /// contents of the frame.
+    pub fn set_read_only(&mut self, read_only: bool) {
+        self.flags.read_only = read_only;
     }
 
     /// Returns the version of the tag which this frame belongs to.
