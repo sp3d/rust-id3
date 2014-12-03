@@ -122,7 +122,7 @@ impl Timestamp {
 }
 
 /// A variable-length integer used to store, for example, playback counts.
-#[derive(PartialEq, Clone, Debug)]
+#[derive(PartialEq, Clone)]
 pub struct BigNum {
     /// Two base-10 digits per limb; most significant limb at 'push' end of Vec.
     data: Vec<u8>
@@ -135,10 +135,8 @@ impl BigNum {
         BigNum {data: data}
     }
     /// Increments the value stored in the bignum by 1.
-    pub fn incr(&mut self)
-    {
-        for i in &mut self.data
-        {
+    pub fn incr(&mut self) {
+        for i in &mut self.data {
             *i += 1;
             if *i == 100 {
                 *i = 0;
@@ -150,11 +148,9 @@ impl BigNum {
         self.data.push(1);
     }
     //remove leading zero bytes
-    fn drop_leading_zeros(data: &mut Vec<u8>)
-    {
+    fn drop_leading_zeros(data: &mut Vec<u8>) {
         loop {
-            match data.pop()
-            {
+            match data.pop() {
                 None => {break},
                 Some(0) => {},
                 Some(n) => {data.push(n); break},
@@ -164,8 +160,7 @@ impl BigNum {
 }
 impl ::std::str::FromStr for BigNum {
     type Err=();
-    fn from_str(s: &str) -> Result<BigNum, ()>
-    {
+    fn from_str(s: &str) -> Result<BigNum, ()> {
         let mut ones: Option<u8> = None;
         let mut n = BigNum::new(vec![]);
         for i in s.chars().rev() {
@@ -185,8 +180,7 @@ impl ::std::str::FromStr for BigNum {
     }
 }
 impl fmt::Display for BigNum {
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result
-    {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         if self.data.len() == 0 {
             0.fmt(fmt)
         } else {
@@ -199,6 +193,11 @@ impl fmt::Display for BigNum {
             }
             Ok(())
         }
+    }
+}
+impl fmt::Debug for BigNum {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+        fmt::Display::fmt(&self, fmt)
     }
 }
 
@@ -229,6 +228,7 @@ fn test_bignum_print() {
     assert_eq!(BigNum::new(vec![99]).to_string(), "99");
     assert_eq!(BigNum::new(vec![04, 32]).to_string(), "3204");
     assert_eq!(BigNum::new(vec![00, 1]).to_string(), "100");
+    assert_eq!(BigNum::new(vec![00, 10]).to_string(), "1000");
     assert_eq!(BigNum::new(vec![00, 00, 1]).to_string(), "10000");
     assert_eq!(BigNum::new(vec![00, 00, 1, 00]).to_string(), "10000");
 }
