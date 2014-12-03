@@ -62,8 +62,6 @@ extern crate audiotag;
 pub use self::audiotag::{AudioTag, TagResult, TagError, ErrorKind};
 pub use id3v2::frame::{Frame, FrameFlags, Encoding};
 
-mod macros;
-
 /// Utilities used for reading/writing ID3 tags.
 pub mod util;
 

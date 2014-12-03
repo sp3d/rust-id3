@@ -152,66 +152,6 @@ impl fmt::Show for BigNum {
     }
 }
 
-macro_rules! find_delim {
-    ($bytes:ident, $encoding:expr, $i:ident, $terminated:expr) => {
-        if !$terminated {
-            ($bytes.len(), $bytes.len())
-        } else {
-            match util::find_delim($encoding, $bytes, $i) {
-                Some(i) => (i, i + util::delim_len($encoding)),
-                None => return Err(TagError::new(InvalidInputError, "delimiter not found"))
-            }
-        }
-    };
-}
-macro_rules! decode_part {
-    ($bytes:ident, $params:ident, $i:ident, string($terminated:expr)) => {
-        {
-            let start = $i;
-            let (end, with_delim) = find_delim!($bytes, $params.encoding, $i, $terminated);
-            $i = with_delim; Some(&$i);
-
-            match ($params.string_func)($bytes.slice(start, end)) {
-                Some(string) => string,
-                None => return Err(TagError::new(
-                        StringDecodingError($bytes.slice(start, end).to_vec()),
-                        match $params.encoding {
-                            Encoding::Latin1 | ::frame::Encoding::UTF8 => "string is not valid utf8",
-                            Encoding::UTF16 => "string is not valid utf16",
-                            Encoding::UTF16BE => "string is not valid utf16-be"
-                        }))
-            }
-        }
-    };
-    ($bytes:ident, $params:ident, $i:ident, fixed_string($len:expr)) => {
-        {
-            if $i + $len >= $bytes.len() {
-                return Err(TagError::new(InvalidInputError, "insufficient data"));
-            }
-
-            let start = $i;
-            $i += $len;
-
-            try_string!($bytes.slice(start, $i).to_vec())
-        }
-    };
-    ($bytes:ident, $params:ident, $i:ident, latin1($terminated:expr)) => {
-        {
-            let start = $i;
-            let (end, with_delim) = find_delim!($bytes, Encoding::Latin1, $i, $terminated);
-            $i = with_delim; Some(&$i);
-            try_string!($bytes.slice(start, end).to_vec())
-        }
-    };
-    ($bytes:ident, $params:ident, $i:ident, bytes()) => {
-        {
-            let start = $i;
-            $i = $bytes.len(); Some(&$i);
-            $bytes.slice_from(start).to_vec()
-        }
-    };
-}
-
 /// A parsed ID3v2 field, which is the atomic component from which frames are
 /// composed, and which stores one type of primitive or list of homogeneous primitives.
 #[allow(missing_docs)]
