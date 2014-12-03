@@ -43,6 +43,7 @@
 #![warn(missing_docs)]
 #![feature(macro_rules)]
 #![feature(globs)]
+#![feature(slicing_syntax)]
 #![feature(phase)]
 #[phase(plugin, link)] extern crate log;
 
@@ -53,7 +54,6 @@ extern crate phf;
 extern crate audiotag; 
 
 pub use self::audiotag::{AudioTag, TagResult, TagError, ErrorKind};
-pub use tag::ID3Tag;
 pub use frame::{Frame, FrameFlags, Encoding, Content};
 
 mod macros;
@@ -65,5 +65,6 @@ pub mod util;
 pub mod frame;
 
 mod id3v1;
+mod id3v2;
 mod tag;
 mod parsers;
