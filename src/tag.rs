@@ -88,6 +88,7 @@ impl AudioTag for FileTags {
     }
 
     fn read_from(reader: &mut Reader) -> TagResult<FileTags> {
+        use id3v2::TagFlag::*;
         let mut tag = id3v2::Tag::new();
 
         let identifier = try!(reader.read_exact(3));
@@ -108,12 +109,12 @@ impl AudioTag for FileTags {
             _ => return Err(TagError::new(InvalidInputError, "unsupported ID3 tag version")),
         };
 
-        tag.flags = id3v2::TagFlags::from_byte(try!(reader.read_byte()), tag.version().to_bytes()[0]);
+        tag.flags = id3v2::TagFlags::from_byte(try!(reader.read_byte()), tag.version());
 
-        if tag.flags.unsynchronization {
+        if tag.flags.get(Unsynchronization) {
             debug!("unsynchronization is unsupported");
             return Err(TagError::new(UnsupportedFeatureError, "unsynchronization is not supported"))
-        } else if tag.flags.compression {
+        } else if tag.flags.get(Compression) {
             debug!("ID3v2.2 compression is unsupported");
             return Err(TagError::new(UnsupportedFeatureError, "ID3v2.2 compression is not supported"));
         }
@@ -123,7 +124,7 @@ impl AudioTag for FileTags {
         let mut offset = 10;
 
         // TODO actually use the extended header data
-        if tag.flags.extended_header {
+        if tag.flags.get(ExtendedHeader) {
             let ext_size = util::unsynchsafe(try!(reader.read_be_u32()));
             offset += 4;
             let _ = try!(reader.read_exact(ext_size as uint));
@@ -178,7 +179,7 @@ impl AudioTag for FileTags {
 
                 try!(writer.write(b"ID3"));
                 try!(writer.write(id3v2.version.to_bytes().as_slice())); 
-                try!(writer.write_u8(id3v2.flags.to_byte(id3v2.version().to_bytes()[0])));
+                try!(writer.write_u8(id3v2.flags.to_byte(id3v2.version())));
                 try!(writer.write_be_u32(util::synchsafe(id3v2.size)));
 
                 let mut bytes_written = 10;
@@ -556,16 +557,18 @@ impl AudioTag for FileTags {
 #[cfg(test)]
 mod tests {
     use id3v2::TagFlags;
+    use id3v2::TagFlag::*;
+    use id3v2::Version::*;
 
     #[test]
     fn test_flags_to_bytes() {
         let mut flags = TagFlags::new();
-        assert_eq!(flags.to_byte(4), 0x0);
-        flags.unsynchronization = true;
-        flags.extended_header = true;
-        flags.experimental = true;
-        flags.footer = true;
-        assert_eq!(flags.to_byte(4), 0xF0);
+        assert_eq!(flags.to_byte(V4), 0x0);
+        flags.set(Unsynchronization, true);
+        flags.set(ExtendedHeader, true);
+        flags.set(Experimental, true);
+        flags.set(Footer, true);
+        assert_eq!(flags.to_byte(V4), 0xF0);
     }
 }
 // }}}

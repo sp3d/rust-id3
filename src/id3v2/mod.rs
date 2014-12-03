@@ -2,6 +2,7 @@ use std::cmp::min;
 use self::frame::{Frame, Encoding, PictureType, Id};
 use self::frame::field::Field;
 use util;
+use std::fmt;
 
 /// Tools for working with ID3v2 frames.
 pub mod frame;
@@ -28,17 +29,45 @@ pub struct Tag {
 
 /// Flags used in the ID3v2 header.
 #[deriving(Show, Copy)]
-pub struct TagFlags {
+pub enum TagFlag {
     /// Indicates whether or not unsynchronization is used.
-    pub unsynchronization: bool,
+    Unsynchronization,
     /// Indicates whether or not the header is followed by an extended header.
-    pub extended_header: bool,
+    ExtendedHeader,
     /// Indicates whether the tag is in an experimental stage.
-    pub experimental: bool,
+    Experimental,
     /// Indicates whether a footer is present.
-    pub footer: bool,
+    Footer,
     /// Indicates whether or not compression is used. This flag is only used in ID3v2.2.
-    pub compression: bool // v2.2 only
+    Compression, // v2.2 only
+}
+
+impl TagFlag {
+    #[inline]
+    pub fn value(&self) -> u8 {
+        [0x80, 0x40, 0x20, 0x10, 0x40][*self as uint]
+    }
+}
+
+/// The flags set in an ID3v2 header.
+#[deriving(Copy)]
+pub struct TagFlags {
+    byte: u8,
+}
+
+impl fmt::Show for TagFlags {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+        //TODO(sp3d): verify that the Ok case returns the right value
+        use self::TagFlag::*;
+        try!(fmt.write(b"{"));
+        for i in [Unsynchronization, ExtendedHeader, Experimental, Footer].iter() {
+            if self.get(*i) {
+                try!(i.fmt(fmt))
+                try!(fmt.write(b" "))
+            }
+        }
+        fmt.write(b"}")
+    }
 }
 
 // TagFlags {{{
@@ -47,60 +76,41 @@ impl TagFlags {
     #[inline]
     pub fn new() -> TagFlags {
         TagFlags { 
-            unsynchronization: false, extended_header: false, experimental: false, 
-            footer: false, compression: false 
+            byte: 0u8,
         }
     }
 
     /// Creates a new `TagFlags` using the provided byte.
-    pub fn from_byte(byte: u8, version: u8) -> TagFlags {
-        let mut flags = TagFlags::new();
-
-        flags.unsynchronization = byte & 0x80 != 0;
-
-        if version == 2 {
-            flags.compression = byte & 0x40 != 0;
-        } else {
-            flags.extended_header = byte & 0x40 != 0;
-            flags.experimental = byte & 0x20 != 0;
-
-            if version == 4 {
-                flags.footer = byte & 0x10 != 0;
-            }
+    pub fn from_byte(byte: u8, version: Version) -> TagFlags {
+        if match version {
+            Version::V3|Version::V4 => byte & !0xF0 != 0,
+            Version::V2 => byte & !0xC0 != 0,
+        } {
+            debug!("Unknown flags encountered!");
         }
+        TagFlags {
+            byte: byte
+        }
+    }
 
-        flags
+    /// Get the state of a flag.
+    pub fn get(&self, which: TagFlag) -> bool {
+        self.byte & which.value() != 0
+    }
+
+    /// Set a flag in the flags to the given value.
+    pub fn set(&mut self, which: TagFlag, val: bool) {
+        //TODO(sp3d): warn if incompatible V2 flags and V3/V4 flags are set?
+        if val {
+            self.byte |= which.value();
+        } else {
+            self.byte &= !which.value();
+        }
     }
 
     /// Creates a byte representation of the flags suitable for writing to an ID3 tag.
-    pub fn to_byte(&self, version: u8) -> u8 {
-        let mut byte = 0;
-       
-        if self.unsynchronization {
-            byte |= 0x80;
-        }
-
-        if version == 2 {
-            if self.compression {
-                byte |= 0x40;
-            }
-        } else {
-            if self.extended_header {
-                byte |= 0x40;
-            }
-
-            if self.experimental {
-                byte |= 0x20
-            }
-
-            if version == 4 {
-                if self.footer {
-                    byte |= 0x10;
-                }
-            }
-        }
-
-        byte
+    pub fn to_byte(&self, version: Version) -> u8 {
+        self.byte
     }
 }
 // }}}
