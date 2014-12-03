@@ -276,10 +276,6 @@ impl Field {
         Ok(())
     }
 
-    pub fn parse2<R: Reader, W: Writer>(reader: &mut R, ftype: FieldType, encoding: Option<Encoding>, len: uint) -> (Option<Field>, Vec<u8>) {
-        loop {}
-    }
-
     /// Reads a sequence of bytes until `delim_len` consecutive zero bytes are read
     /// or max_len bytes are read, whichever comes first. Reads but discards the
     /// sequence of zero bytes.
@@ -324,7 +320,6 @@ impl Field {
     /// Attempts to read a field of the given type. If the field is malformed,
     /// writes the bytes which could not be parsed to the given writer, if any.
     pub fn parse<R: Reader, W: Writer>(reader: &mut R, ftype: FieldType, encoding: Option<Encoding>, len: uint, is_last: bool, unparsable: Option<&mut W>) -> IoResult<Field> {
-        use std::cmp::min;
         use std::slice::bytes;
         use self::FieldType::*;
 
@@ -357,7 +352,7 @@ impl Field {
         };
 
         let mut fixed_buf=[0u8, ..8];
-        let mut grow_buf=vec![];
+        let mut grow_buf;
         let (buf, len_read, saw_delim) = if len_min > 0 {
             let mut buf = fixed_buf.slice_to_mut(len_min);
             let len_read=try!(reader.read(buf));

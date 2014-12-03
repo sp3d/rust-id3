@@ -2,7 +2,7 @@ use audiotag::{TagError, TagResult};
 use audiotag::ErrorKind::{InvalidInputError, StringDecodingError, UnsupportedFeatureError};
 
 use id3v2::frame::field::Field;
-use id3v2::frame::{Frame, Id, Encoding, PictureType};
+use id3v2::frame::{Frame, Id, Encoding};
 use super::id3v2::Version;
 use util;
 

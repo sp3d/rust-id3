@@ -1,7 +1,6 @@
 extern crate std;
 
 use phf;
-use std::rand::{mod, Rng};
 use id3v2::frame::{Encoding, Id};
 use id3v2::frame::field::FieldType;
 use id3v2::frame::field::FieldType::*;
@@ -168,6 +167,7 @@ pub fn string_to_utf16le(text: &str) -> Vec<u8> {
     out
 }
 
+/// Get string-terminating delimiter for the specified text encoding.
 #[inline(always)]
 pub fn delim(encoding: Encoding) -> &'static [u8] {
     match encoding {
@@ -176,7 +176,7 @@ pub fn delim(encoding: Encoding) -> &'static [u8] {
     }
 }
 
-/// Returns the delimiter length for the specified encoding.
+/// Get the length of the delimiter for the specified text encoding.
 #[inline]
 pub fn delim_len(encoding: Encoding) -> uint {
     match encoding {
