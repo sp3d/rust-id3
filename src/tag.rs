@@ -1,7 +1,6 @@
 extern crate std;
 
-use std::cmp::min;
-use std::io::{File, Open, Truncate, Write, SeekSet, SeekCur};
+use std::io::{File, SeekSet, SeekCur};
 use std::collections::HashMap;
 
 use audiotag::{AudioTag, TagError, TagResult};
@@ -9,8 +8,8 @@ use audiotag::ErrorKind::{InvalidInputError, UnsupportedFeatureError};
 
 use id3v1;
 use id3v2;
-use frame::{mod, Frame, Encoding, Picture, PictureType};
-use frame::Content::{PictureContent, CommentContent, TextContent, ExtendedTextContent, LyricsContent};
+use frame::{Frame, Encoding, PictureType};
+use frame::Content::LyricsContent;
 use util;
 
 static DEFAULT_FILE_DISCARD: [&'static str, ..11] = [
@@ -19,14 +18,17 @@ static DEFAULT_FILE_DISCARD: [&'static str, ..11] = [
 ];
 static PADDING_BYTES: u32 = 2048;
 
+/// Represents a file on disk which may have an ID3v1 and/or ID3v2 tag in the standard locations.
 pub struct FileTags {
-    v1: Option<id3v1::Tag>,
-    v2: Option<id3v2::Tag>,
+    /// The ID3v1 tag (combined with ID3v1.1 and Extended ID3v1 data) stored in the file, if any.
+    pub v1: Option<id3v1::Tag>,
+    /// The ID3v2 tag stored at the file's start, if any. Does not describe tags which start midway through the file, as in streams.
+    pub v2: Option<id3v2::Tag>,
     /// The path, if any, that this file was loaded from.
-    path: Option<Path>,
-    /// Indicates if when writing, an ID3v1 tag should be removed.
+    pub path: Option<Path>,
     /// Indicates if the path that we are writing to is not the same as the path we read from.
     path_changed: bool,
+    /// Indicates if when writing, an ID3v1 tag should be removed.
     remove_v1: bool
 }
 
@@ -86,15 +88,19 @@ impl AudioTag for FileTags {
             return Err(TagError::new(InvalidInputError, "buffer does not contain an id3 tag"))
         }
 
-        try!(reader.read(&mut tag.version));
+        let mut version_bytes = [0u8, ..2];
+        try!(reader.read(&mut version_bytes));
 
-        debug!("tag version {}", tag.version[0]);
+        debug!("tag version {}", version_bytes);
 
-        if tag.version[0] < 2 || tag.version[0] > 4 {
-            return Err(TagError::new(InvalidInputError, "unsupported id3 tag version"));
-        }
+        tag.version = match version_bytes.as_slice() {
+            [2, 0] => id3v2::SupportedVersion::V2_2,
+            [3, 0] => id3v2::SupportedVersion::V2_3,
+            [4, 0] => id3v2::SupportedVersion::V2_4,
+            _ => return Err(TagError::new(InvalidInputError, "unsupported id3 tag version")),
+        };
 
-        tag.flags = id3v2::TagFlags::from_byte(try!(reader.read_byte()), tag.version[0]);
+        tag.flags = id3v2::TagFlags::from_byte(try!(reader.read_byte()), tag.version().to_bytes()[0]);
 
         if tag.flags.unsynchronization {
             debug!("unsynchronization is unsupported");
@@ -117,7 +123,7 @@ impl AudioTag for FileTags {
         }
 
         while offset < tag.size + 10 {
-            let (bytes_read, mut frame) = match Frame::read_from(reader, tag.version[0]) {
+            let (bytes_read, mut frame) = match Frame::read_from(reader, tag.version().to_bytes()[0]) {
                 Ok(opt) => match opt {
                     Some(frame) => frame,
                     None => break //padding
@@ -163,8 +169,8 @@ impl AudioTag for FileTags {
                 id3v2.size = size + PADDING_BYTES;
 
                 try!(writer.write(b"ID3"));
-                try!(writer.write(&mut id3v2.version)); 
-                try!(writer.write_u8(id3v2.flags.to_byte(id3v2.version[0])));
+                try!(writer.write(id3v2.version.to_bytes().as_slice())); 
+                try!(writer.write_u8(id3v2.flags.to_byte(id3v2.version().to_bytes()[0])));
                 try!(writer.write_be_u32(util::synchsafe(id3v2.size)));
 
                 let mut bytes_written = 10;
@@ -320,7 +326,7 @@ impl AudioTag for FileTags {
     
     #[inline]
     fn artist(&self) -> Option<String> {
-        self.v2.as_ref().and_then(|x| x.text_for_frame_id(x.artist_id()))
+        self.v2.as_ref().and_then(|x| x.text_for_frame_id(x.version().artist_id()))
     }
 
     #[inline]
@@ -334,7 +340,7 @@ impl AudioTag for FileTags {
     #[inline]
     fn remove_artist(&mut self) {
         if let Some(ref mut x)=self.v2 {
-            let id = x.artist_id();
+            let id = x.version().artist_id();
             x.remove_frames_by_id(id);
         }
     }
@@ -342,7 +348,7 @@ impl AudioTag for FileTags {
     #[inline]
     fn album_artist(&self) -> Option<String> {
         self.v2.as_ref().and_then(|x| {
-            x.text_for_frame_id(x.album_artist_id())
+            x.text_for_frame_id(x.version().album_artist_id())
         })
     }
 
@@ -357,7 +363,7 @@ impl AudioTag for FileTags {
     #[inline]
     fn remove_album_artist(&mut self) {
         if let Some(ref mut x)=self.v2 {
-            let id = x.album_artist_id();
+            let id = x.version().album_artist_id();
             x.remove_frames_by_id(id);
         }
     }
@@ -365,7 +371,7 @@ impl AudioTag for FileTags {
     #[inline]
     fn album(&self) -> Option<String> {
         self.v2.as_ref().and_then(|x| {
-            x.text_for_frame_id(x.album_id())
+            x.text_for_frame_id(x.version().album_id())
         })
     }
 
@@ -380,7 +386,7 @@ impl AudioTag for FileTags {
     fn remove_album(&mut self) {
         if let Some(ref mut x)=self.v2 {
             x.remove_frames_by_id("TSOP");
-            let id = x.album_id();
+            let id = x.version().album_id();
             x.remove_frames_by_id(id);
         }
     }
@@ -388,7 +394,7 @@ impl AudioTag for FileTags {
     #[inline]
     fn title(&self) -> Option<String> {
         self.v2.as_ref().and_then(|x| {
-            x.text_for_frame_id(x.title_id())
+            x.text_for_frame_id(x.version().title_id())
         })
     }
 
@@ -403,7 +409,7 @@ impl AudioTag for FileTags {
     #[inline]
     fn remove_title(&mut self) {
         if let Some(ref mut x)=self.v2 {
-            let id = x.title_id();
+            let id = x.version().title_id();
             x.remove_frames_by_id(id);
         }
     }
@@ -411,7 +417,7 @@ impl AudioTag for FileTags {
     #[inline]
     fn genre(&self) -> Option<String> {
         self.v2.as_ref().and_then(|x| {
-            x.text_for_frame_id(x.genre_id())
+            x.text_for_frame_id(x.version().genre_id())
         })
     }
 
@@ -426,7 +432,7 @@ impl AudioTag for FileTags {
     #[inline]
     fn remove_genre(&mut self) {
         if let Some(ref mut x)=self.v2 {
-            let id = x.genre_id();
+            let id = x.version().genre_id();
             x.remove_frames_by_id(id);
         }
     }
@@ -448,7 +454,7 @@ impl AudioTag for FileTags {
     #[inline]
     fn remove_track(&mut self) {
         if let Some(ref mut x)=self.v2 {
-            let id = x.track_id();
+            let id = x.version().track_id();
             x.remove_frames_by_id(id);
         }
     }
@@ -469,7 +475,7 @@ impl AudioTag for FileTags {
 
     fn remove_total_tracks(&mut self) {
         if let Some(ref mut x)=self.v2 {
-            let id = x.track_id();
+            let id = x.version().track_id();
             match x.track_pair() {
                 Some((track, _)) => x.add_text_frame(id, format!("{}", track)),
                 None => {}
@@ -479,7 +485,7 @@ impl AudioTag for FileTags {
 
     fn lyrics(&self) -> Option<String> {
         self.v2.as_ref().and_then(|x| {
-            match x.get_frame_by_id(x.lyrics_id()) {
+            match x.get_frame_by_id(x.version().lyrics_id()) {
                 Some(frame) => match frame.content {
                     LyricsContent(ref lyrics) => Some(lyrics.text.clone()),
                     _ => None
@@ -500,7 +506,7 @@ impl AudioTag for FileTags {
     #[inline]
     fn remove_lyrics(&mut self) {
         if let Some(ref mut x)=self.v2 {
-            let id = x.lyrics_id();
+            let id = x.version().lyrics_id();
             x.remove_frames_by_id(id);
         }
     }
@@ -516,7 +522,7 @@ impl AudioTag for FileTags {
     #[inline]
     fn remove_picture(&mut self) {
         if let Some(ref mut x)=self.v2 {
-            let id = x.picture_id();
+            let id = x.version().picture_id();
             x.remove_frames_by_id(id);
         }
     }

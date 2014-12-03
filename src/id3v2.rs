@@ -5,7 +5,7 @@ use frame::Content::{PictureContent, CommentContent, TextContent, ExtendedTextCo
 pub struct Tag {
     /// The version of the tag. The first byte represents the major version number, while the
     /// second byte represents the revision number.
-    pub version: [u8, ..2],
+    pub version: SupportedVersion,
     /// The ID3 header flags.
     pub flags: TagFlags,
     /// A vector of frames included in the tag.
@@ -96,13 +96,87 @@ impl TagFlags {
 }
 // }}}
 
+/// The version of an ID3v2 tag. Supported versions include 2.2, 2.3, and 2.4. When writing new
+/// tags, prefer the highest possible version unless specific legacy software demands otherwise.
+#[allow(non_camel_case_types, missing_docs)]
+#[deriving(Show, PartialEq, Eq)]
+pub enum SupportedVersion {
+    V2_2 = 2,
+    V2_3 = 3,
+    V2_4 = 4,
+}
+
+#[allow(missing_docs)]
+impl SupportedVersion {
+    pub fn to_bytes(&self) -> [u8, ..2] {
+        [*self as u8, 0]
+    }
+
+    // Frame ID Querying {{{
+    #[inline]
+    pub fn artist_id(&self) -> &'static str {
+        if *self == SupportedVersion::V2_2 { "TP1" } else { "TPE1" }
+    }
+
+    #[inline]
+    pub fn album_artist_id(&self) -> &'static str {
+        if *self == SupportedVersion::V2_2 { "TP2" } else { "TPE2" }
+    }
+
+    #[inline]
+    pub fn album_id(&self) -> &'static str {
+        if *self == SupportedVersion::V2_2 { "TAL" } else { "TALB" }
+    }
+
+    #[inline]
+    pub fn title_id(&self) -> &'static str {
+        if *self == SupportedVersion::V2_2 { "TT2" } else { "TIT2" }
+    }
+
+    #[inline]
+    pub fn genre_id(&self) -> &'static str {
+        if *self == SupportedVersion::V2_2 { "TCO" } else { "TCON" }
+    }
+
+    #[inline]
+    pub fn year_id(&self) -> &'static str {
+        if *self == SupportedVersion::V2_2 { "TYE" } else { "TYER" }
+    }
+
+    #[inline]
+    pub fn track_id(&self) -> &'static str {
+        if *self == SupportedVersion::V2_2 { "TRK" } else { "TRCK" }
+    }
+
+    #[inline]
+    pub fn lyrics_id(&self) -> &'static str {
+        if *self == SupportedVersion::V2_2 { "ULT" } else { "USLT" }
+    }
+
+    #[inline]
+    pub fn picture_id(&self) -> &'static str {
+        if *self == SupportedVersion::V2_2 { "PIC" } else { "APIC" }
+    }
+
+    #[inline]
+    pub fn comment_id(&self) -> &'static str {
+        if *self == SupportedVersion::V2_2 { "COM" } else { "COMM" }
+    }
+
+    #[inline]
+    pub fn txxx_id(&self) -> &'static str {
+        if *self == SupportedVersion::V2_2 { "TXX" } else { "TXXX" }
+    }
+    // }}}
+}
+
 // Tag {{{
 impl Tag {
     /// Creates a new ID3v2.3 tag with no frames. 
     #[inline]
     pub fn new() -> Tag {
         Tag { 
-            version: [3, 0],
+            version: SupportedVersion::V2_4,
             flags: TagFlags::new(), 
             frames: Vec::new(),
             size: 0,
@@ -112,110 +186,44 @@ impl Tag {
     }
 
     /// Creates a new ID3 tag with the specified version.
-    ///
-    /// ID3v2 versions 2 to 4 are supported. Passing any other version will cause a panic.
     #[inline]
-    pub fn with_version(version: u8) -> Tag {
-        if version < 2 || version > 4 {
-            panic!("attempted to set unsupported version");
-        }
+    pub fn with_version(version: SupportedVersion) -> Tag {
         let mut tag = Tag::new();
-        tag.version = [version, 0];
+        tag.version = version;
         tag
     }
 
-    // Frame ID Querying {{{
+    /// Get the version of this tag.
     #[inline]
-    pub fn artist_id(&self) -> &'static str {
-        if self.version[0] == 2 { "TP1" } else { "TPE1" }
-    }
-
-    #[inline]
-    pub fn album_artist_id(&self) -> &'static str {
-        if self.version[0] == 2 { "TP2" } else { "TPE2" }
-    }
-
-    #[inline]
-    pub fn album_id(&self) -> &'static str {
-        if self.version[0] == 2 { "TAL" } else { "TALB" }
-    }
-
-    #[inline]
-    pub fn title_id(&self) -> &'static str {
-        if self.version[0] == 2 { "TT2" } else { "TIT2" }
-    }
-
-    #[inline]
-    pub fn genre_id(&self) -> &'static str {
-        if self.version[0] == 2 { "TCO" } else { "TCON" }
-    }
-
-    #[inline]
-    pub fn year_id(&self) -> &'static str {
-        if self.version[0] == 2 { "TYE" } else { "TYER" }
-    }
-
-    #[inline]
-    pub fn track_id(&self) -> &'static str {
-        if self.version[0] == 2 { "TRK" } else { "TRCK" }
-    }
-
-    #[inline]
-    pub fn lyrics_id(&self) -> &'static str {
-        if self.version[0] == 2 { "ULT" } else { "USLT" }
-    }
-
-    #[inline]
-    pub fn picture_id(&self) -> &'static str {
-        if self.version[0] == 2 { "PIC" } else { "APIC" }
-    }
-
-    #[inline]
-    pub fn comment_id(&self) -> &'static str {
-        if self.version[0] == 2 { "COM" } else { "COMM" }
-    }
-
-    #[inline]
-    pub fn txxx_id(&self) -> &'static str {
-        if self.version[0] == 2 { "TXX" } else { "TXXX" }
-    }
-    // }}}
-
-    #[inline]
-    pub fn version(&self) -> u8 {
-        self.version[0]
+    pub fn version(&self) -> SupportedVersion {
+        self.version
     }
 
     /// Sets the version of this tag.
-    ///
-    /// ID3v2 versions 2 to 4 can be set. Trying to set any other version will cause a panic.
     ///
     /// Any frames that could not be converted to the new version will be dropped.
     ///
     /// # Example
     /// ```
     /// use id3::id3v2;
+    /// use id3::id3v2::SupportedVersion::*;
     ///
-    /// let mut tag = id3v2::Tag::with_version(4);
-    /// assert_eq!(tag.version(), 4);
+    /// let mut tag = id3v2::Tag::with_version(V2_4);
+    /// assert_eq!(tag.version(), V2_4);
     ///
-    /// tag.set_version(3);
-    /// assert_eq!(tag.version(), 3);
+    /// tag.set_version(V2_3);
+    /// assert_eq!(tag.version(), V2_3);
     /// ```
-    pub fn set_version(&mut self, version: u8) {
-        if version < 2 || version > 4 {
-            panic!("attempted to set unsupported version");
-        }
-
-        if self.version[0] == version {
+    pub fn set_version(&mut self, version: SupportedVersion) {
+        if self.version == version {
             return;
         }
 
-        self.version = [version, 0];
+        self.version = version;
         
         let mut remove_uuid = Vec::new();
         for frame in self.frames.iter_mut() {
-            if !frame.set_version(version) {
+            if !frame.set_version(version.to_bytes()[0]) {
                 remove_uuid.push(frame.uuid.clone());
             }
         }
@@ -227,7 +235,7 @@ impl Tag {
 
     /// Returns the default unicode encoding that should be used for this tag.
     ///
-    /// For ID3 versions greater than v2.4 this returns UTF8. For versions less than v2.4 this
+    /// For ID3 versions at least v2.4 this returns UTF8. For versions less than v2.4 this
     /// returns UTF16.
     ///
     /// # Example
@@ -243,7 +251,7 @@ impl Tag {
     /// ```
     #[inline]
     pub fn default_encoding(&self) -> Encoding {
-        if self.version[0] >= 4 {
+        if self.version == SupportedVersion::V2_4 {
             Encoding::UTF8
         } else {
             Encoding::UTF16
@@ -335,7 +343,7 @@ impl Tag {
     pub fn add_frame(&mut self, mut frame: Frame) -> bool {
         frame.generate_uuid();
         frame.offset = 0;
-        if !frame.set_version(self.version[0]) {
+        if !frame.set_version(self.version().to_bytes()[0]) {
             return false;
         }
         self.frames.push(frame);
@@ -374,7 +382,7 @@ impl Tag {
 
         self.remove_frames_by_id(id.as_slice());
        
-        let mut frame = Frame::with_version(id, self.version[0]);
+        let mut frame = Frame::with_version(id, self.version().to_bytes()[0]);
         frame.set_encoding(encoding);
         frame.content = TextContent(text.into_string());
 
@@ -492,7 +500,7 @@ impl Tag {
     /// ```
     pub fn txxx(&self) -> Vec<(String, String)> {
         let mut out = Vec::new();
-        for frame in self.get_frames_by_id(self.txxx_id()).iter() {
+        for frame in self.get_frames_by_id(self.version().txxx_id()).iter() {
             match frame.content {
                 ExtendedTextContent(ref ext) => out.push((ext.key.clone(), ext.value.clone())),
                 _ => { }
@@ -544,7 +552,7 @@ impl Tag {
 
         self.remove_txxx(Some(key.as_slice()), None);
 
-        let mut frame = Frame::with_version(self.txxx_id(), self.version[0]);
+        let mut frame = Frame::with_version(self.version().txxx_id(), self.version().to_bytes()[0]);
         frame.set_encoding(encoding);
         frame.content = ExtendedTextContent(frame::ExtendedText { 
             key: key, 
@@ -585,7 +593,7 @@ impl Tag {
     pub fn remove_txxx(&mut self, key: Option<&str>, value: Option<&str>) {
         let mut modified_offset = self.modified_offset;
 
-        let id = self.txxx_id();
+        let id = self.version().txxx_id();
         self.frames.retain(|frame| {
             let mut key_match = false;
             let mut value_match = false;
@@ -642,7 +650,7 @@ impl Tag {
     /// ```
     pub fn pictures(&self) -> Vec<&Picture> {
         let mut pictures = Vec::new();
-        for frame in self.get_frames_by_id(self.picture_id()).iter() {
+        for frame in self.get_frames_by_id(self.version().picture_id()).iter() {
             match frame.content {
                 PictureContent(ref picture) => pictures.push(picture),
                 _ => { }
@@ -688,7 +696,7 @@ impl Tag {
     pub fn add_picture_enc<S: StrAllocating, T: StrAllocating>(&mut self, mime_type: S, picture_type: PictureType, description: T, data: Vec<u8>, encoding: Encoding) {
         self.remove_picture_type(picture_type);
 
-        let mut frame = Frame::with_version(self.picture_id(), self.version[0]);
+        let mut frame = Frame::with_version(self.version().picture_id(), self.version().to_bytes()[0]);
 
         frame.set_encoding(encoding);
         frame.content = PictureContent(Picture { 
@@ -720,7 +728,7 @@ impl Tag {
     pub fn remove_picture_type(&mut self, picture_type: PictureType) {
         let mut modified_offset = self.modified_offset;
 
-        let id = self.picture_id();
+        let id = self.version().picture_id();
         self.frames.retain(|frame| {
             if frame.id.as_slice() == id {
                 let pic = match frame.content {
@@ -773,7 +781,7 @@ impl Tag {
     /// ```
     pub fn comments(&self) -> Vec<(String, String)> {
         let mut out = Vec::new();
-        for frame in self.get_frames_by_id(self.comment_id()).iter() {
+        for frame in self.get_frames_by_id(self.version().comment_id()).iter() {
             match frame.content {
                 CommentContent(ref comment) => out.push((comment.description.clone(), 
                                                          comment.text.clone())),
@@ -826,7 +834,7 @@ impl Tag {
 
         self.remove_comment(Some(description.as_slice()), None);
 
-        let mut frame = Frame::with_version(self.comment_id(), self.version[0]);
+        let mut frame = Frame::with_version(self.version().comment_id(), self.version().to_bytes()[0]);
 
         frame.set_encoding(encoding);
         frame.content = CommentContent(frame::Comment { 
@@ -869,7 +877,7 @@ impl Tag {
     pub fn remove_comment(&mut self, description: Option<&str>, text: Option<&str>) {
         let mut modified_offset = self.modified_offset;
 
-        let id = self.comment_id();
+        let id = self.version().comment_id();
         self.frames.retain(|frame| {
             let mut description_match = false;
             let mut text_match = false;
@@ -917,7 +925,7 @@ impl Tag {
     /// ```
     #[inline]
     pub fn set_artist_enc<T: StrAllocating>(&mut self, artist: T, encoding: Encoding) {
-        let id = self.artist_id();
+        let id = self.version().artist_id();
         self.add_text_frame_enc(id, artist, encoding);
     }
 
@@ -935,7 +943,7 @@ impl Tag {
     #[inline]
     pub fn set_album_artist_enc<T: StrAllocating>(&mut self, album_artist: T, encoding: Encoding) {
         self.remove_frames_by_id("TSOP");
-        let id = self.album_artist_id();
+        let id = self.version().album_artist_id();
         self.add_text_frame_enc(id, album_artist, encoding);
     }
 
@@ -952,7 +960,7 @@ impl Tag {
     /// ```
     #[inline]
     pub fn set_album_enc<T: StrAllocating>(&mut self, album: T, encoding: Encoding) {
-        let id = self.album_id();
+        let id = self.version().album_id();
         self.add_text_frame_enc(id, album, encoding);
     }
 
@@ -970,7 +978,7 @@ impl Tag {
     #[inline]
     pub fn set_title_enc<T: StrAllocating>(&mut self, title: T, encoding: Encoding) {
         self.remove_frames_by_id("TSOT");
-        let id = self.title_id();
+        let id = self.version().title_id();
         self.add_text_frame_enc(id, title, encoding);
     }
 
@@ -987,7 +995,7 @@ impl Tag {
     /// ```
     #[inline]
     pub fn set_genre_enc<T: StrAllocating>(&mut self, genre: T, encoding: Encoding) {
-        let id = self.genre_id();
+        let id = self.version().genre_id();
         self.add_text_frame_enc(id, genre, encoding);
     }
 
@@ -1015,7 +1023,7 @@ impl Tag {
     /// assert!(tag.year().is_none());
     /// ```
     pub fn year(&self) -> Option<uint> {
-        let id = self.year_id();
+        let id = self.version().year_id();
         match self.get_frame_by_id(id) {
             Some(frame) => {
                 match frame.content {
@@ -1039,7 +1047,7 @@ impl Tag {
     /// ```
     #[inline]
     pub fn set_year(&mut self, year: uint) {
-        let id = self.year_id();
+        let id = self.version().year_id();
         self.add_text_frame_enc(id, format!("{}", year), Encoding::Latin1);
     }
 
@@ -1056,13 +1064,13 @@ impl Tag {
     /// ```
     #[inline]
     pub fn set_year_enc(&mut self, year: uint, encoding: Encoding) {
-        let id = self.year_id();
+        let id = self.version().year_id();
         self.add_text_frame_enc(id, format!("{}", year), encoding);
     }
 
     /// Returns the (track, total_tracks) tuple.
     pub fn track_pair(&self) -> Option<(u32, Option<u32>)> {
-        match self.get_frame_by_id(self.track_id()) {
+        match self.get_frame_by_id(self.version().track_id()) {
             Some(frame) => {
                 match frame.content {
                     TextContent(ref text) => {
@@ -1106,7 +1114,7 @@ impl Tag {
             None => format!("{}", track)
         };
 
-        let id = self.track_id();
+        let id = self.version().track_id();
         self.add_text_frame_enc(id, text, encoding);
     }
 
@@ -1128,7 +1136,7 @@ impl Tag {
             None => format!("1/{}", total_tracks)
         };
 
-        let id = self.track_id();
+        let id = self.version().track_id();
         self.add_text_frame_enc(id, text, encoding);
     }
 
@@ -1145,10 +1153,10 @@ impl Tag {
     /// assert_eq!(tag.lyrics().unwrap().as_slice(), "lyrics");
     /// ```
     pub fn set_lyrics_enc<L: StrAllocating, K: StrAllocating, V: StrAllocating>(&mut self, lang: L, description: K, text: V, encoding: Encoding) {
-        let id = self.lyrics_id();
+        let id = self.version().lyrics_id();
         self.remove_frames_by_id(id);
 
-        let mut frame = Frame::with_version(id, self.version[0]);
+        let mut frame = Frame::with_version(id, self.version().to_bytes()[0]);
 
         frame.set_encoding(encoding);
         frame.content = LyricsContent(frame::Lyrics { 

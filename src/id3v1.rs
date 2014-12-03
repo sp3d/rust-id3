@@ -1,11 +1,10 @@
-#![feature(globs)]
-#![feature(macro_rules)]
-
 use std::io::{SeekEnd, IoResult};
 use std::num::Bounded;
 use std::fmt;
 
+/// The fields in an ID3v1 tag, including the "1.1" track number field
 #[deriving(FromPrimitive)]
+#[allow(missing_docs)]
 pub enum Fields {
     Title,
     Artist,
@@ -32,6 +31,8 @@ pub static TAGPLUS_OFFSET: i64 = 355;
 
 static XLENGTHS: &'static [i8]=&[60, 60, 60, 30, 6, 6];
 
+/// The fields in an extended ID3v1 tag
+#[allow(missing_docs)]
 pub enum XFields {
     XTitle,
     XArtist,
@@ -234,7 +235,7 @@ impl<R: Reader + Seek> ID3v1Helpers for R {
 #[inline]
 pub fn probe_tag<R: Reader>(reader: &mut R) -> IoResult<bool> {
     let mut x=&mut [0, ..3];
-    let tag = try!(reader.read_at_least(TAG.len(), x[mut]));
+    let _tag = try!(reader.read_at_least(TAG.len(), x[mut]));
     Ok(TAG == x[])
 }
 
@@ -242,7 +243,7 @@ pub fn probe_tag<R: Reader>(reader: &mut R) -> IoResult<bool> {
 #[inline]
 pub fn probe_xtag<R: Reader>(reader: &mut R) -> IoResult<bool> {
     let mut x=&mut [0, ..4];
-    let tag = try!(reader.read_at_least(TAGPLUS.len(), x[mut]));
+    let _tag = try!(reader.read_at_least(TAGPLUS.len(), x[mut]));
     Ok(TAGPLUS == x[])
 }
 
@@ -311,6 +312,7 @@ fn parse_time(s: &[u8]) -> Time {
     }
 }
 
+/// Read an ID3v1 tag from a reader
 pub fn read<R: Reader>(reader: &mut R) -> IoResult<Tag> {
     use self::Fields::*;
     macro_rules! maybe_read {
@@ -344,6 +346,7 @@ pub fn read<R: Reader>(reader: &mut R) -> IoResult<Tag> {
     Ok(tag)
 }
 
+/// Read the extended portion of an extended ID3v1 tag from a reader, combining its data with a previously-read ID3v1 tag
 pub fn read_xtag<R: Reader>(reader: &mut R, tag: &mut Tag) -> IoResult<()> {
     use self::Fields::*;
     use self::XFields::*;
@@ -384,7 +387,7 @@ fn extract_nz_88591(s: Vec<u8>) -> String {
     s.into_iter().take_while(|&c| c!=0).map(|c| c as char).collect()
 }
 
-/// Removes trailing zeros from a u8
+/// Removes trailing zeros from an &[u8]
 pub fn truncate_zeros(mut s: &[u8]) -> &[u8] {
     while s.len() > 0 && s[s.len()-1] == 0 {
         s=s[..s.len()-1]
@@ -392,7 +395,7 @@ pub fn truncate_zeros(mut s: &[u8]) -> &[u8] {
     s
 }
 
-fn main() {
+/*fn main() {
     let mut f=::std::io::fs::File::open(&Path::new(&::std::os::args()[1]));
     f.seek(-TAG_OFFSET, SeekEnd);
     let mut tag=read(&mut f).unwrap();
@@ -400,4 +403,4 @@ fn main() {
     f.seek(-TAGPLUS_OFFSET, SeekEnd);
     read_xtag(&mut f, &mut tag);
     println!("{}", tag);
-}
+}*/
