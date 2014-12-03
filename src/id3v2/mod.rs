@@ -27,19 +27,19 @@ pub struct Tag {
     pub modified_offset: u32,
 }
 
-/// Flags used in the ID3v2 header.
+/// Flags used in ID3v2 tag headers.
 #[deriving(Show, Copy)]
 pub enum TagFlag {
-    /// Indicates whether or not unsynchronization is used.
+    /// Indicates whether or not unsynchronization is used. Valid in all ID3v2 tag versions.
     Unsynchronization,
-    /// Indicates whether or not the header is followed by an extended header.
+    /// Indicates whether or not the header is followed by an extended header. Valid in ID3v2.3/4 tags.
     ExtendedHeader,
-    /// Indicates whether the tag is in an experimental stage.
+    /// Indicates whether the tag is in an experimental stage. Valid in ID3v2.3/4 tags.
     Experimental,
-    /// Indicates whether a footer is present.
+    /// Indicates whether a footer is present. Valid in ID3v2.4 tags.
     Footer,
-    /// Indicates whether or not compression is used. This flag is only used in ID3v2.2.
-    Compression, // v2.2 only
+    /// Indicates whether or not compression is used. This flag is only valid in ID3v2.2 tags.
+    Compression,
 }
 
 impl TagFlag {
@@ -53,6 +53,7 @@ impl TagFlag {
 #[deriving(Copy)]
 pub struct TagFlags {
     byte: u8,
+    version: Version,
 }
 
 impl fmt::Show for TagFlags {
@@ -60,7 +61,7 @@ impl fmt::Show for TagFlags {
         //TODO(sp3d): verify that the Ok case returns the right value
         use self::TagFlag::*;
         try!(fmt.write(b"{"));
-        for i in [Unsynchronization, ExtendedHeader, Experimental, Footer].iter() {
+        for i in [Unsynchronization, ExtendedHeader, Experimental, Footer, Compression].iter() {
             if self.get(*i) {
                 try!(i.fmt(fmt))
                 try!(fmt.write(b" "))
@@ -74,9 +75,10 @@ impl fmt::Show for TagFlags {
 impl TagFlags {
     /// Create a new `TagFlags` with all flags set to false.
     #[inline]
-    pub fn new() -> TagFlags {
-        TagFlags { 
+    pub fn new(version: Version) -> TagFlags {
+        TagFlags {
             byte: 0u8,
+            version: version,
         }
     }
 
@@ -86,30 +88,48 @@ impl TagFlags {
             Version::V3|Version::V4 => byte & !0xF0 != 0,
             Version::V2 => byte & !0xC0 != 0,
         } {
-            debug!("Unknown flags encountered!");
+            info!("Unknown flags found while parsing flags byte of {} tag: {}", version, byte);
         }
         TagFlags {
-            byte: byte
+            byte: byte,
+            version: version,
+        }
+    }
+
+    fn supported(&self, which: TagFlag) -> bool {
+        use self::TagFlag::*;
+        match which {
+            Unsynchronization => true,
+            ExtendedHeader => self.version >= Version::V3,
+            Experimental => self.version >= Version::V3,
+            Footer => self.version >= Version::V4,
+            Compression => self.version == Version::V2,
         }
     }
 
     /// Get the state of a flag.
     pub fn get(&self, which: TagFlag) -> bool {
-        self.byte & which.value() != 0
+        self.supported(which) && {
+            self.byte & which.value() != 0
+        }
     }
 
     /// Set a flag in the flags to the given value.
     pub fn set(&mut self, which: TagFlag, val: bool) {
-        //TODO(sp3d): warn if incompatible V2 flags and V3/V4 flags are set?
-        if val {
-            self.byte |= which.value();
+        if self.supported(which)
+        {
+            if val {
+                self.byte |= which.value();
+            } else {
+                self.byte &= !which.value();
+            }
         } else {
-            self.byte &= !which.value();
+            warn!("Attempt to set incompatible flag ({}) on version {} tag!", which, self.version);
         }
     }
 
     /// Create a byte representation of the flags suitable for writing to an ID3 tag.
-    pub fn to_byte(&self, version: Version) -> u8 {
+    pub fn to_byte(&self) -> u8 {
         self.byte
     }
 }
@@ -179,7 +199,7 @@ impl Tag {
     pub fn new() -> Tag {
         Tag { 
             version: Version::V4,
-            flags: TagFlags::new(), 
+            flags: TagFlags::new(Version::V4),
             frames: Vec::new(),
             size: 0,
             offset: 0,

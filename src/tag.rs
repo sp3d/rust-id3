@@ -179,7 +179,7 @@ impl AudioTag for FileTags {
 
                 try!(writer.write(b"ID3"));
                 try!(writer.write(id3v2.version.to_bytes().as_slice())); 
-                try!(writer.write_u8(id3v2.flags.to_byte(id3v2.version())));
+                try!(writer.write_u8(id3v2.flags.to_byte()));
                 try!(writer.write_be_u32(util::synchsafe(id3v2.size)));
 
                 let mut bytes_written = 10;
@@ -562,13 +562,13 @@ mod tests {
 
     #[test]
     fn test_flags_to_bytes() {
-        let mut flags = TagFlags::new();
-        assert_eq!(flags.to_byte(V4), 0x0);
+        let mut flags = TagFlags::new(V4);
+        assert_eq!(flags.to_byte(), 0x0);
         flags.set(Unsynchronization, true);
         flags.set(ExtendedHeader, true);
         flags.set(Experimental, true);
         flags.set(Footer, true);
-        assert_eq!(flags.to_byte(V4), 0xF0);
+        assert_eq!(flags.to_byte(), 0xF0);
     }
 }
 // }}}
