@@ -64,7 +64,7 @@ pub mod util;
 /// Contains types and methods for operating on ID3 frames.
 pub mod frame;
 
-mod id3v1;
-mod id3v2;
-mod tag;
+pub mod id3v1;
+pub mod id3v2;
+pub mod tag;
 mod parsers;

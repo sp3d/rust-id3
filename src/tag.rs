@@ -30,9 +30,9 @@ pub struct FileTags {
     remove_v1: bool
 }
 
-impl AudioTag for id3v2::Tag {
+impl AudioTag for FileTags {
     // Reading/Writing {{{
-    fn skip_metadata<R: Reader + Seek>(reader: &mut R, _: Option<id3v2::Tag>) -> Vec<u8> {
+    fn skip_metadata<R: Reader + Seek>(reader: &mut R, _: Option<FileTags>) -> Vec<u8> {
         macro_rules! try_io {
             ($reader:ident, $action:expr) => {
                 match $action { 
@@ -64,7 +64,7 @@ impl AudioTag for id3v2::Tag {
         try_io!(reader, reader.read_to_end())
     }
 
-    fn is_candidate(reader: &mut Reader, _: Option<id3v2::Tag>) -> bool {
+    fn is_candidate(reader: &mut Reader, _: Option<FileTags>) -> bool {
         macro_rules! try_or_false {
             ($action:expr) => {
                 match $action { 
@@ -77,7 +77,7 @@ impl AudioTag for id3v2::Tag {
         (try_or_false!(reader.read_exact(3))).as_slice() == b"ID3"
     }
 
-    fn read_from(reader: &mut Reader) -> TagResult<id3v2::Tag> {
+    fn read_from(reader: &mut Reader) -> TagResult<FileTags> {
         let mut tag = id3v2::Tag::new();
 
         let identifier = try!(reader.read_exact(3));
@@ -137,64 +137,69 @@ impl AudioTag for id3v2::Tag {
         tag.offset = offset;
         tag.modified_offset = tag.offset;
 
-        Ok(tag)
+        Ok(FileTags {v1: None, v2: Some(tag), path: None, path_changed: false, remove_v1: false, })
     }
 
     fn write_to(&mut self, writer: &mut Writer) -> TagResult<()> {
         // remove frames which have the flags indicating they should be removed 
-        self.frames.retain(|frame| {
-            !(frame.offset != 0 
-              && (frame.tag_alter_preservation() 
-                  || (frame.file_alter_preservation() 
-                          || DEFAULT_FILE_DISCARD.contains(&frame.id.as_slice()))))
-        });
+        match self.v2 {
+            Some(ref mut id3v2) => {
+                id3v2.frames.retain(|frame| {
+                    !(frame.offset != 0 
+                      && (frame.tag_alter_preservation() 
+                          || (frame.file_alter_preservation() 
+                                  || DEFAULT_FILE_DISCARD.contains(&frame.id.as_slice()))))
+                });
 
-        let mut data_cache: HashMap<Vec<u8>, Vec<u8>> = HashMap::new();
-        let mut size = 0;
+                let mut data_cache: HashMap<Vec<u8>, Vec<u8>> = HashMap::new();
+                let mut size = 0;
 
-        for frame in self.frames.iter() {
-            let mut frame_writer = Vec::new();
-            size += try!(frame.write_to(&mut frame_writer));
-            data_cache.insert(frame.uuid.clone(), frame_writer);
+                for frame in id3v2.frames.iter() {
+                    let mut frame_writer = Vec::new();
+                    size += try!(frame.write_to(&mut frame_writer));
+                    data_cache.insert(frame.uuid.clone(), frame_writer);
+                }
+
+                id3v2.size = size + PADDING_BYTES;
+
+                try!(writer.write(b"ID3"));
+                try!(writer.write(&mut id3v2.version)); 
+                try!(writer.write_u8(id3v2.flags.to_byte(id3v2.version[0])));
+                try!(writer.write_be_u32(util::synchsafe(id3v2.size)));
+
+                let mut bytes_written = 10;
+
+                for frame in id3v2.frames.iter_mut() {
+                    debug!("writing {}", frame.id);
+
+                    frame.offset = bytes_written;
+
+                    bytes_written += match data_cache.get(&frame.uuid) {
+                        Some(data) => { 
+                            try!(writer.write(data.as_slice()));
+                            data.len() as u32
+                        },
+                        None => try!(frame.write_to(writer))
+                    }
+                }
+
+                id3v2.offset = bytes_written;
+                id3v2.modified_offset = id3v2.offset;
+
+                // write padding
+                for _ in range(0, PADDING_BYTES) {
+                    try!(writer.write_u8(0));
+                }
+            },
+            None => (),
         }
-
-        self.size = size + PADDING_BYTES;
-
-        try!(writer.write(b"ID3"));
-        try!(writer.write(&mut self.version)); 
-        try!(writer.write_u8(self.flags.to_byte(self.version[0])));
-        try!(writer.write_be_u32(util::synchsafe(self.size)));
-
-        let mut bytes_written = 10;
-
-        for frame in self.frames.iter_mut() {
-            debug!("writing {}", frame.id);
-
-            frame.offset = bytes_written;
-
-            bytes_written += match data_cache.get(&frame.uuid) {
-                Some(data) => { 
-                    try!(writer.write(data.as_slice()));
-                    data.len() as u32
-                },
-                None => try!(frame.write_to(writer))
-            }
-        }
-
-        self.offset = bytes_written;
-        self.modified_offset = self.offset;
-
-        // write padding
-        for _ in range(0, PADDING_BYTES) {
-            try!(writer.write_u8(0));
-        }
-
         Ok(())
     }
 
-    fn read_from_path(path: &Path) -> TagResult<id3v2::Tag> {
+    fn read_from_path(path: &Path) -> TagResult<FileTags> {
         let mut file = try!(File::open(path));
         let mut tag = try!(AudioTag::read_from(&mut file));
+        tag.path=Some(path.clone());
         Ok(tag)
     }
 
@@ -315,163 +320,215 @@ impl AudioTag for id3v2::Tag {
     
     #[inline]
     fn artist(&self) -> Option<String> {
-        self.text_for_frame_id(self.artist_id())
+        self.v2.as_ref().and_then(|x| x.text_for_frame_id(x.artist_id()))
     }
 
     #[inline]
     fn set_artist<T: StrAllocating>(&mut self, artist: T) {
-        let encoding = self.default_encoding();
-        self.set_artist_enc(artist, encoding);
+        if let Some(ref mut x)=self.v2 {
+            let encoding = x.default_encoding();
+            x.set_artist_enc(artist, encoding);
+        }
     }
 
     #[inline]
     fn remove_artist(&mut self) {
-        let id = self.artist_id();
-        self.remove_frames_by_id(id);
+        if let Some(ref mut x)=self.v2 {
+            let id = x.artist_id();
+            x.remove_frames_by_id(id);
+        }
     }
 
     #[inline]
     fn album_artist(&self) -> Option<String> {
-        self.text_for_frame_id(self.album_artist_id())
+        self.v2.as_ref().and_then(|x| {
+            x.text_for_frame_id(x.album_artist_id())
+        })
     }
 
     #[inline]
     fn set_album_artist<T: StrAllocating>(&mut self, album_artist: T) {
-        let encoding = self.default_encoding();
-        self.set_album_artist_enc(album_artist, encoding);
+        if let Some(ref mut x)=self.v2 {
+            let encoding = x.default_encoding();
+            x.set_album_artist_enc(album_artist, encoding);
+        }
     }
 
     #[inline]
     fn remove_album_artist(&mut self) {
-        let id = self.album_artist_id();
-        self.remove_frames_by_id(id);
+        if let Some(ref mut x)=self.v2 {
+            let id = x.album_artist_id();
+            x.remove_frames_by_id(id);
+        }
     }
 
     #[inline]
     fn album(&self) -> Option<String> {
-        self.text_for_frame_id(self.album_id())
+        self.v2.as_ref().and_then(|x| {
+            x.text_for_frame_id(x.album_id())
+        })
     }
 
     fn set_album<T: StrAllocating>(&mut self, album: T) {
-        let encoding = self.default_encoding();
-        self.set_album_enc(album, encoding);
+        if let Some(ref mut x)=self.v2 {
+            let encoding = x.default_encoding();
+            x.set_album_enc(album, encoding);
+        }
     }
 
     #[inline]
     fn remove_album(&mut self) {
-        self.remove_frames_by_id("TSOP");
-        let id = self.album_id();
-        self.remove_frames_by_id(id);
+        if let Some(ref mut x)=self.v2 {
+            x.remove_frames_by_id("TSOP");
+            let id = x.album_id();
+            x.remove_frames_by_id(id);
+        }
     }
 
     #[inline]
     fn title(&self) -> Option<String> {
-        self.text_for_frame_id(self.title_id())
+        self.v2.as_ref().and_then(|x| {
+            x.text_for_frame_id(x.title_id())
+        })
     }
 
     #[inline]
     fn set_title<T: StrAllocating>(&mut self, title: T) {
-        let encoding = self.default_encoding();
-        self.set_title_enc(title, encoding);
+        if let Some(ref mut x)=self.v2 {
+            let encoding = x.default_encoding();
+            x.set_title_enc(title, encoding);
+        }
     }
 
     #[inline]
     fn remove_title(&mut self) {
-        let id = self.title_id();
-        self.remove_frames_by_id(id);
+        if let Some(ref mut x)=self.v2 {
+            let id = x.title_id();
+            x.remove_frames_by_id(id);
+        }
     }
 
     #[inline]
     fn genre(&self) -> Option<String> {
-        self.text_for_frame_id(self.genre_id())
+        self.v2.as_ref().and_then(|x| {
+            x.text_for_frame_id(x.genre_id())
+        })
     }
 
     #[inline]
     fn set_genre<T: StrAllocating>(&mut self, genre: T) {
-        let encoding = self.default_encoding();
-        self.set_genre_enc(genre, encoding);
+        if let Some(ref mut x)=self.v2 {
+            let encoding = x.default_encoding();
+            x.set_genre_enc(genre, encoding);
+        }
     }
 
     #[inline]
     fn remove_genre(&mut self) {
-        let id = self.genre_id();
-        self.remove_frames_by_id(id);
+        if let Some(ref mut x)=self.v2 {
+            let id = x.genre_id();
+            x.remove_frames_by_id(id);
+        }
     }
 
     #[inline]
     fn track(&self) -> Option<u32> {
-        self.track_pair().and_then(|(track, _)| Some(track))
+        self.v2.as_ref().and_then(|x| {
+            x.track_pair().and_then(|(track, _)| Some(track))
+        })
     }
 
     #[inline]
     fn set_track(&mut self, track: u32) {
-        self.set_track_enc(track, Encoding::Latin1);
+        if let Some(ref mut x)=self.v2 {
+            x.set_track_enc(track, Encoding::Latin1);
+        }
     }
 
     #[inline]
     fn remove_track(&mut self) {
-        let id = self.track_id();
-        self.remove_frames_by_id(id);
+        if let Some(ref mut x)=self.v2 {
+            let id = x.track_id();
+            x.remove_frames_by_id(id);
+        }
     }
 
     #[inline]
     fn total_tracks(&self) -> Option<u32> {
-        self.track_pair().and_then(|(_, total_tracks)| total_tracks)
+        self.v2.as_ref().and_then(|x| {
+            x.track_pair().and_then(|(_, total_tracks)| total_tracks)
+        })
     }
 
     #[inline]
     fn set_total_tracks(&mut self, total_tracks: u32) {
-        self.set_total_tracks_enc(total_tracks, Encoding::Latin1);
+        if let Some(ref mut x)=self.v2 {
+            x.set_total_tracks_enc(total_tracks, Encoding::Latin1);
+        }
     }
 
     fn remove_total_tracks(&mut self) {
-        let id = self.track_id();
-        match self.track_pair() {
-            Some((track, _)) => self.add_text_frame(id, format!("{}", track)),
-            None => {}
+        if let Some(ref mut x)=self.v2 {
+            let id = x.track_id();
+            match x.track_pair() {
+                Some((track, _)) => x.add_text_frame(id, format!("{}", track)),
+                None => {}
+            }
         }
     }
 
     fn lyrics(&self) -> Option<String> {
-        match self.get_frame_by_id(self.lyrics_id()) {
-            Some(frame) => match frame.content {
-                LyricsContent(ref lyrics) => Some(lyrics.text.clone()),
-                _ => None
-            },
-            None => None
-        }
+        self.v2.as_ref().and_then(|x| {
+            match x.get_frame_by_id(x.lyrics_id()) {
+                Some(frame) => match frame.content {
+                    LyricsContent(ref lyrics) => Some(lyrics.text.clone()),
+                    _ => None
+                },
+                None => None
+            }
+        })
     }
 
     #[inline]
     fn set_lyrics<T: StrAllocating>(&mut self, text: T) {
-        let encoding = self.default_encoding();
-        self.set_lyrics_enc("eng", text, "", encoding);
+        if let Some(ref mut x)=self.v2 {
+            let encoding = x.default_encoding();
+            x.set_lyrics_enc("eng", text, "", encoding);
+        }
     }
 
     #[inline]
     fn remove_lyrics(&mut self) {
-        let id = self.lyrics_id();
-        self.remove_frames_by_id(id);
+        if let Some(ref mut x)=self.v2 {
+            let id = x.lyrics_id();
+            x.remove_frames_by_id(id);
+        }
     }
 
     #[inline]
     fn set_picture<T: StrAllocating>(&mut self, mime_type: T, data: Vec<u8>) {
         self.remove_picture();
-        self.add_picture(mime_type, PictureType::Other, data);
+        if let Some(ref mut x)=self.v2 {
+            x.add_picture(mime_type, PictureType::Other, data);
+        }
     }
 
     #[inline]
     fn remove_picture(&mut self) {
-        let id = self.picture_id();
-        self.remove_frames_by_id(id);
+        if let Some(ref mut x)=self.v2 {
+            let id = x.picture_id();
+            x.remove_frames_by_id(id);
+        }
     }
 
     fn all_metadata(&self) -> Vec<(String, String)> {
         let mut metadata = Vec::new();
-        for frame in self.frames.iter() {
-            match frame.text() {
-                Some(text) => metadata.push((frame.id.clone(), text)),
-                None => {}
+        if let Some(ref x)=self.v2 {
+            for frame in x.frames.iter() {
+                match frame.text() {
+                    Some(text) => metadata.push((frame.id.clone(), text)),
+                    None => {}
+                }
             }
         }
         metadata
