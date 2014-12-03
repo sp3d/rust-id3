@@ -1,8 +1,7 @@
 extern crate flate;
 
-use frame::stream::FrameStream;
-use frame::Frame;
-use frame::Id;
+use id3v2::frame::stream::FrameStream;
+use id3v2::frame::{Frame, Id};
 use audiotag::{TagResult, TagError};
 use audiotag::ErrorKind::UnsupportedFeatureError;
 use util;
@@ -45,13 +44,13 @@ impl FrameStream for FrameV4 {
         }
 
         let data = try!(reader.read_exact(read_size as uint));
-        try!(frame.parse_data(data.as_slice()));
+        frame.fields = try!(frame.parse_fields(data.as_slice()));
 
         Ok(Some((10 + content_size, frame)))
     }
 
     fn write(writer: &mut Writer, frame: &Frame, _: Option<FrameV4>) -> TagResult<u32> {
-        let mut content_bytes = frame.content_to_bytes();
+        let mut content_bytes = frame.fields_to_bytes();
         let mut content_size = content_bytes.len() as u32;
         let decompressed_size = content_size;
 

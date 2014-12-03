@@ -1,6 +1,5 @@
-use frame::stream::FrameStream;
-use frame::Frame;
-use frame::Id;
+use id3v2::frame::stream::FrameStream;
+use id3v2::frame::{Frame, Id};
 use audiotag::TagResult;
 use util;
 
@@ -16,13 +15,13 @@ impl FrameStream for FrameV2 {
         let read_size = (sizebytes[0] as u32 << 16) | (sizebytes[1] as u32 << 8) | sizebytes[2] as u32;
 
         let data = try!(reader.read_exact(read_size as uint));
-        try!(frame.parse_data(data.as_slice()));
+        frame.fields = try!(frame.parse_fields(data.as_slice()));
 
         Ok(Some((6 + read_size, frame)))
     }
 
     fn write(writer: &mut Writer, frame: &Frame, _: Option<FrameV2>) -> TagResult<u32> {
-        let content_bytes = frame.content_to_bytes();
+        let content_bytes = frame.fields_to_bytes();
         let content_size = content_bytes.len() as u32;
 
         if let Id::V2(id_bytes)=frame.id {

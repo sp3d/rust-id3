@@ -1,5 +1,4 @@
 #![crate_name = "id3_macros"]
-#![crate_type = "rlib"]
 #![crate_type = "dylib"]
 
 #![feature(plugin_registrar, quote, default_type_params, macro_rules, globs)]

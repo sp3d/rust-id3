@@ -7,10 +7,10 @@ authors = ["James Hurst <jamesrhurst@users.noreply.github.com>"]
 git = "https://github.com/jamesrhurst/rust-audiotag.git"
 
 [dependencies.phf]
-git = "https://github.com/sp3d/rust-phf.git"
+git = "https://github.com/sfackler/rust-phf.git"
 
 [dependencies.phf_mac]
-git = "https://github.com/sp3d/rust-phf.git"
+git = "https://github.com/sfackler/rust-phf.git"
 
 [dependencies.id3_macros]
 path = "macros"

@@ -5,7 +5,7 @@ extern crate id3;
 
 use id3::{id3v2, Frame, Encoding};
 use id3::id3v2::Version::*;
-use id3::frame::Id;
+use id3::id3v2::frame::Id;
 
 static ID: Id = Id::V4(b!("TYER"));
 static YEAR: uint = 2014;
@@ -21,12 +21,12 @@ fn utf8() {
     let frame = tag.get_frame_by_id(ID).unwrap();
     
     assert_eq!(tag.year().unwrap(), YEAR);
-    assert_eq!(frame.content.text().as_slice(), YEARSTR);
+    assert_eq!(tag.text_frame_text(ID), Some(YEARSTR.into_string()));
 
     let mut data: Vec<u8> = Vec::new();
     data.push(Encoding::UTF8 as u8);
     data.push_all(YEARSTR.as_bytes());
-    assert_eq!(frame.content_to_bytes(), data);
+    assert_eq!(frame.fields_to_bytes(), data);
 }
 
 #[test]
@@ -36,7 +36,7 @@ fn utf8_invalid() {
     let mut data = Vec::new();
     data.push(Encoding::UTF8 as u8);
     data.push_all(INVALID.as_bytes());
-    frame.parse_data(data.as_slice()).unwrap();
+    frame.fields = frame.parse_fields(data.as_slice()).unwrap();
     tag.add_frame(frame);
     assert!(tag.year().is_none());
 }
@@ -51,12 +51,12 @@ fn utf16() {
     let frame = tag.get_frame_by_id(ID).unwrap();
 
     assert_eq!(tag.year().unwrap(), YEAR);
-    assert_eq!(frame.content.text().as_slice(), YEARSTR);
+    assert_eq!(tag.text_frame_text(ID), Some(YEARSTR.into_string()));
 
     let mut data: Vec<u8> = Vec::new();
     data.push(Encoding::UTF16 as u8);
     data.extend(id3::util::string_to_utf16(YEARSTR).into_iter());
-    assert_eq!(frame.content_to_bytes(), data);
+    assert_eq!(frame.fields_to_bytes(), data);
 }
 
 #[test]
@@ -66,7 +66,7 @@ fn utf16_invalid() {
     let mut data = Vec::new();
     data.push(Encoding::UTF16 as u8);
     data.extend(id3::util::string_to_utf16(INVALID).into_iter());
-    frame.parse_data(data.as_slice()).unwrap();
+    frame.fields = frame.parse_fields(data.as_slice()).unwrap();
     tag.add_frame(frame);
     assert!(tag.year().is_none());
 }
@@ -81,12 +81,12 @@ fn utf16be() {
     let frame = tag.get_frame_by_id(ID).unwrap();
 
     assert_eq!(tag.year().unwrap(), YEAR);
-    assert_eq!(frame.content.text().as_slice(), YEARSTR);
+    assert_eq!(tag.text_frame_text(ID), Some(YEARSTR.into_string()));
 
     let mut data: Vec<u8> = Vec::new();
     data.push(Encoding::UTF16BE as u8);
     data.extend(id3::util::string_to_utf16be(YEARSTR).into_iter());
-    assert_eq!(frame.content_to_bytes(), data);
+    assert_eq!(frame.fields_to_bytes(), data);
 }
 
 #[test]
@@ -96,7 +96,7 @@ fn utf16be_invalid() {
     let mut data = Vec::new();
     data.push(Encoding::UTF16BE as u8);
     data.extend(id3::util::string_to_utf16be(INVALID).into_iter());
-    frame.parse_data(data.as_slice()).unwrap();
+    frame.fields = frame.parse_fields(data.as_slice()).unwrap();
     tag.add_frame(frame);
     assert!(tag.year().is_none());
 }

@@ -8,8 +8,7 @@ use audiotag::ErrorKind::{InvalidInputError, UnsupportedFeatureError};
 
 use id3v1;
 use id3v2;
-use frame::{Id, Frame, Encoding, PictureType};
-use frame::Content::LyricsContent;
+use id3v2::frame::{Id, Frame, Encoding, PictureType};
 use util;
 
 static DEFAULT_FILE_DISCARD: [&'static str, ..11] = [
@@ -335,14 +334,14 @@ impl AudioTag for FileTags {
     
     #[inline]
     fn artist(&self) -> Option<String> {
-        self.v2.as_ref().and_then(|x| x.text_for_frame_id(x.version().artist_id()))
+        self.v2.as_ref().and_then(|x| x.text_frame_text(x.version().artist_id()))
     }
 
     #[inline]
     fn set_artist<T: StrAllocating>(&mut self, artist: T) {
         if let Some(ref mut x)=self.v2 {
-            let encoding = x.default_encoding();
-            x.set_artist_enc(artist, encoding);
+            let encoding = x.version().default_encoding();
+            x.set_artist_enc(artist.as_slice(), encoding);
         }
     }
 
@@ -357,15 +356,15 @@ impl AudioTag for FileTags {
     #[inline]
     fn album_artist(&self) -> Option<String> {
         self.v2.as_ref().and_then(|x| {
-            x.text_for_frame_id(x.version().album_artist_id())
+            x.text_frame_text(x.version().album_artist_id())
         })
     }
 
     #[inline]
     fn set_album_artist<T: StrAllocating>(&mut self, album_artist: T) {
         if let Some(ref mut x)=self.v2 {
-            let encoding = x.default_encoding();
-            x.set_album_artist_enc(album_artist, encoding);
+            let encoding = x.version().default_encoding();
+            x.set_album_artist_enc(album_artist.as_slice(), encoding);
         }
     }
 
@@ -380,14 +379,14 @@ impl AudioTag for FileTags {
     #[inline]
     fn album(&self) -> Option<String> {
         self.v2.as_ref().and_then(|x| {
-            x.text_for_frame_id(x.version().album_id())
+            x.text_frame_text(x.version().album_id())
         })
     }
 
     fn set_album<T: StrAllocating>(&mut self, album: T) {
         if let Some(ref mut x)=self.v2 {
-            let encoding = x.default_encoding();
-            x.set_album_enc(album, encoding);
+            let encoding = x.version().default_encoding();
+            x.set_album_enc(album.as_slice(), encoding);
         }
     }
 
@@ -404,15 +403,15 @@ impl AudioTag for FileTags {
     #[inline]
     fn title(&self) -> Option<String> {
         self.v2.as_ref().and_then(|x| {
-            x.text_for_frame_id(x.version().title_id())
+            x.text_frame_text(x.version().title_id())
         })
     }
 
     #[inline]
     fn set_title<T: StrAllocating>(&mut self, title: T) {
         if let Some(ref mut x)=self.v2 {
-            let encoding = x.default_encoding();
-            x.set_title_enc(title, encoding);
+            let encoding = x.version().default_encoding();
+            x.set_title_enc(title.as_slice(), encoding);
         }
     }
 
@@ -427,15 +426,15 @@ impl AudioTag for FileTags {
     #[inline]
     fn genre(&self) -> Option<String> {
         self.v2.as_ref().and_then(|x| {
-            x.text_for_frame_id(x.version().genre_id())
+            x.text_frame_text(x.version().genre_id())
         })
     }
 
     #[inline]
     fn set_genre<T: StrAllocating>(&mut self, genre: T) {
         if let Some(ref mut x)=self.v2 {
-            let encoding = x.default_encoding();
-            x.set_genre_enc(genre, encoding);
+            let encoding = x.version().default_encoding();
+            x.set_genre_enc(genre.as_slice(), encoding);
         }
     }
 
@@ -487,8 +486,8 @@ impl AudioTag for FileTags {
         if let Some(ref mut x)=self.v2 {
             let id = x.version().track_id();
             match x.track_pair() {
-                Some((track, _)) => x.add_text_frame(id, format!("{}", track)),
-                None => {}
+                Some((track, _)) => {x.add_text_frame(id, format!("{}", track).as_slice());},
+                None => {},
             }
         }
     }
@@ -496,8 +495,9 @@ impl AudioTag for FileTags {
     fn lyrics(&self) -> Option<String> {
         self.v2.as_ref().and_then(|x| {
             match x.get_frame_by_id(x.version().lyrics_id()) {
-                Some(frame) => match frame.content {
-                    LyricsContent(ref lyrics) => Some(lyrics.text.clone()),
+                Some(frame) => match frame.fields {
+                    //TODO(sp3d): rebuild this on top of fields
+                    //LyricsContent(ref lyrics) => Some(lyrics.text.clone()),
                     _ => None
                 },
                 None => None
@@ -508,8 +508,8 @@ impl AudioTag for FileTags {
     #[inline]
     fn set_lyrics<T: StrAllocating>(&mut self, text: T) {
         if let Some(ref mut x)=self.v2 {
-            let encoding = x.default_encoding();
-            x.set_lyrics_enc("eng", text, "", encoding);
+            let encoding = x.version().default_encoding();
+            x.set_lyrics_enc("eng", text.as_slice(), "", encoding);
         }
     }
 
@@ -525,7 +525,7 @@ impl AudioTag for FileTags {
     fn set_picture<T: StrAllocating>(&mut self, mime_type: T, data: Vec<u8>) {
         self.remove_picture();
         if let Some(ref mut x)=self.v2 {
-            x.add_picture(mime_type, PictureType::Other, data);
+            x.add_picture(mime_type.as_slice(), PictureType::Other, data);
         }
     }
 

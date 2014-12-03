@@ -1,0 +1,25 @@
+rust-id3 tries very hard to obey the letter and spirit of the ID3v2.2, ID3v2.3, and ID3v2.4 specifications (with the goal of being compliant, interoperable, and working on as many real-world corrupted-and-wrong file as possible). But there are some cases where the specifications are nonsensical, self-inconsistent, or ambiguous. This document is intended to describe the library's behavior and the reason for it in these cases.
+
+1. LINK tag frames
+
+ID3v2.2, ID3v2.3, and ID3v2.4 all have a notion of a "Linked information" tag frame, intended to point at another ID3v2 tag in a separate file, to assist in scenarios where redundant tags would impose undue space overhead. The definition of this tag differs only slightly between its specification in ID3v2.3 and ID3v2.4. The difference is that ID3v2.3 specifies a 3-byte "Frame identifier" field, but ID3v2.4 specifies a 4-byte one. However, both ID3v2.3 and ID3v2.4 use four byte frame identifiers for tags. It seems unlikely that any effective use of this frame in an ID3v2.3 tag would be able to follow the ID3v2.3 specification to the letter, because it would then be unable to specify the full frame identifier of another ID3v2.3 frame. Therefore rust-id3 implements both the ID3v2.3 and ID3v2.4 LINK frames by following the ID3v2.4 specification with a four-byte frame identifier for the linked frame.
+
+2. Field length limits
+
+Several frames in ID3v2.x impose length limits on certain variable-length fields. For example, the binary data field UFID frame is specified to be limited to at most 64 bytes of data. Because the format of encoded ID3 tags makes it relatively easy to ignore these guidelines for length (and thus rust-id3 should probably be able to read noncompliant frames which exceed these limits) and for simplicity of implementation reasons, rust-id3 does not enforce these limits.
+
+The byte length limits described in the standards which are not enforced are:
+
+UFID: <= 64 bytes on field 2
+MCDI: <= 804 bytes on field 1
+APIC: <= 64 characters on field 4
+TCOP: >= 5 characters 
+TPRO: >= 5 characters
+TDAT: = 4 characters
+TIME: = 64 characters on field 4
+TKEY: <= 3 characters
+TLAN: = 3 characters
+TSRC: = 12 characters
+TYER: = 4 characters (until the year 10000)... this is probably nonsense.
+
+Applications written using rust-id3 are free to enforce these restrictions and likely should.

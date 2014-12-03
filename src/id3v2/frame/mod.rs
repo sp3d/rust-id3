@@ -2,17 +2,12 @@ extern crate std;
 extern crate flate;
 
 pub use self::encoding::Encoding;
-pub use self::content::Content;
+pub use self::picture::PictureType;
 pub use self::flags::FrameFlags;
-pub use self::picture::{Picture, PictureType};
-
-use self::content::Content::{
-    TextContent, ExtendedTextContent, LinkContent, ExtendedLinkContent, CommentContent,
-    LyricsContent, UnknownContent
-};
+pub use self::field::Field;
 
 use self::stream::{FrameStream, FrameV2, FrameV3, FrameV4};
-use super::id3v2::Version;
+use id3v2::Version;
 
 use audiotag::TagResult;
 
@@ -24,48 +19,13 @@ use std::fmt;
 
 mod picture;
 mod encoding;
-mod content;
 mod flags;
 mod stream;
-mod field;
-
-#[deriving(Show, Clone, PartialEq)]
-#[allow(missing_docs)]
-/// The parsed contents of an extended text frame.
-pub struct ExtendedText {
-    pub key: String,
-    pub value: String
-}
-
-#[deriving(Show, Clone, PartialEq)]
-#[allow(missing_docs)]
-/// The parsed contents of an unsynchronized lyrics frame.
-pub struct Lyrics {
-    pub lang: String,
-    pub description: String,
-    pub text: String
-}
-
-#[deriving(Show, Clone, PartialEq)]
-#[allow(missing_docs)]
-/// The parsed contents of a comment frame.
-pub struct Comment {
-    pub lang: String,
-    pub description: String,
-    pub text: String
-}
-
-#[deriving(Show, Clone, PartialEq)]
-#[allow(missing_docs)]
-/// The parsed contents of an extended link frame.
-pub struct ExtendedLink {
-    pub description: String,
-    pub link: String
-}
+pub mod field;
 
 /// The version of an ID3v2 tag to which a frame belongs, and the frame ID as
 /// specified by that version of ID3v2.
-#[deriving(PartialEq)]
+#[deriving(PartialEq, Copy)]
 #[allow(missing_docs)]
 pub enum Id {
     V2([u8, ..3]),
@@ -74,13 +34,40 @@ pub enum Id {
 }
 
 impl Id {
-    /// Return the Version of an Id
+    /// Returns the ID3v2 Version to which an ID belongs
+    #[inline]
     pub fn version(&self) -> Version {
         match *self {
             Id::V2(_) => Version::V2,
             Id::V3(_) => Version::V3,
             Id::V4(_) => Version::V4,
         }
+    }
+    /// Returns the frame ID string stored in an ID. This should be considered a
+    /// "last resort" for when the desired behavior is not implemented by this
+    /// library; for most common functionality higher-level functions are available
+    /// and preferred.
+    #[inline]
+    pub fn name(&self) -> &[u8] {
+        match *self {
+            Id::V2(ref id) => id.as_slice(),
+            Id::V3(ref id) => id.as_slice(),
+            Id::V4(ref id) => id.as_slice(),
+        }
+    }
+    /// Returns whether this ID corresponds to a standard-layout text frame.
+    /// Note that this category excludes the TXX/TXXX frames, which have
+    /// different layout and semantics.
+    #[inline]
+    pub fn is_text(&self) -> bool {
+        self.name()[0] == b'T' && self.name() != b"TXX" && self.name() != b"TXXX"
+    }
+    /// Returns whether this ID corresponds to a standard-layout URL frame.
+    /// Note that this category excludes the WXX/WXXX frames, which have
+    /// different layout and semantics.
+    #[inline]
+    pub fn is_url(&self) -> bool {
+        self.name()[0] == b'W' && self.name() != b"WXX" && self.name() != b"WXXX"
     }
 }
 
@@ -99,12 +86,10 @@ impl fmt::Show for Id {
 pub struct Frame {
     /// The frame identifier, namespaced to the ID3v2.x version to which the frame belongs.
     pub id: Id,
-    /// The encoding to be used when converting this frame to bytes.
-    encoding: Encoding,
     /// The frame flags.
     flags: FrameFlags,
     /// The parsed content of the frame.
-    pub content: Content,
+    pub fields: Vec<Field>,
     /// The offset of this frame in the file from which it was loaded.
     pub offset: u32,
 }
@@ -122,13 +107,55 @@ impl PartialEq for Frame {
 }
 
 impl Frame {
-    /// Creates a new ID3v2.3 frame with the specified identifier.
+    /// Creates a new ID3v2 frame with the specified version and identifier.
     #[inline]
     pub fn new(id: Id) -> Frame {
         Frame {
-            id: id, encoding: Encoding::UTF16,
-            flags: FrameFlags::new(), content: UnknownContent(Vec::new()), offset: 0
+            id: id,
+            flags: FrameFlags::new(),
+            fields: vec![],
+            offset: 0
         }
+    }
+
+    /// Creates a new ID3v2 text frame with the specified version and identifier,
+    /// using the provided string as the text frame's content and the default
+    /// encoding for the version.
+    ///
+    /// Returns `None` if the given id does not specify a text frame. Note that
+    /// TXX/TXXX are not "regular" text frames and cannot be created with this
+    /// function.
+    pub fn new_text_frame(id: Id, s: &str) -> Option<Frame> {
+        if !id.is_text() {
+            return None
+        }
+        let mut frame = Frame::new(id);
+        let encoding = id.version().default_encoding();
+        let encoded: Vec<u8> = util::encode_string(s, encoding);
+        //TODO(sp3d): disallow newline characters?
+        frame.fields = match id.version() {
+            Version::V2 => vec![Field::TextEncoding(encoding), Field::String(encoded)],
+            Version::V3 => vec![Field::TextEncoding(encoding), Field::String(encoded)],
+            //TODO(sp3d): StringList for V4?
+            Version::V4 => vec![Field::TextEncoding(encoding), Field::String(encoded)],
+        };
+        Some(frame)
+    }
+
+    /// Creates a new ID3v2 URL frame with the specified version and identifier,
+    /// using the provided URL (encoded in Latin-1) as the frame's URL.
+    ///
+    /// Returns `None` if the given id does not specify a URL frame. Note that
+    /// WXX/WXXX are not "regular" URL frames and cannot be created with this
+    /// function.
+    pub fn new_url_frame(id: Id, url: &[u8]) -> Option<Frame> {
+        if !id.is_url() {
+            return None
+        }
+        let mut frame = Frame::new(id);
+        //TODO(sp3d): disallow newline characters? validate Latin-1?
+        frame.fields = vec![Field::Latin1(url.to_vec())];
+        Some(frame)
     }
 
     /// Returns an encoding compatible with the current version based on the requested encoding.
@@ -146,16 +173,21 @@ impl Frame {
 
     // Getters/Setters
     #[inline]
-    /// Returns the encoding.
-    pub fn encoding(&self) -> Encoding {
-        self.encoding
+    /// Returns the encoding used by text data in this frame, if any.
+    pub fn encoding(&self) -> Option<Encoding> {
+        if let Some(&Field::TextEncoding(encoding)) = self.fields.get(0) {
+            Some(encoding)
+        } else {
+            None
+        }
     }
 
     #[inline]
-    /// Sets the encoding. If the encoding is not compatible with the frame version, another
-    /// encoding will be chosen.
+    /// Sets the encoding used by text data in this frame. If the encoding is
+    /// not compatible with the frame version, another encoding will be chosen.
     pub fn set_encoding(&mut self, encoding: Encoding) {
-        self.encoding = self.compatible_encoding(encoding);
+        //TODO: this
+        //self.encoding = self.compatible_encoding(encoding);
     }
 
     #[inline]
@@ -214,10 +246,10 @@ impl Frame {
     /// Sets the version of the tag. This converts the frame identifier from the previous version
     /// to the corresponding frame identifier in the new version.
     ///
-    /// Returns true if the conversion was successful. Returns false if the frame identifier could
-    /// not be converted.
+    /// Returns `true` if the conversion was successful. Returns `false` if the frame identifier
+    /// could not be converted.
     pub fn set_version(&mut self, to: Version) -> bool {
-        use super::id3v2::Version::*;
+        use id3v2::Version::*;
         // no-op if versions are equal or "compatible" like V3/V4 are
         let from = self.id;
         match (from, to) {
@@ -251,18 +283,16 @@ impl Frame {
             _ => unreachable!(),
         }
 
-        let encoding = self.compatible_encoding(self.encoding);
+        let encoding = self.compatible_encoding(self.encoding().unwrap_or(Encoding::UTF8));
         self.set_encoding(encoding);
         true
     }
 
     /// Attempts to read a frame from the reader.
     ///
-    /// Returns a tuple containing the number of bytes read and a frame. If pading is encountered
-    /// then `None` is returned.
-    ///
-    /// Only reading from version 2, 3, and 4 is supported. Attempting to read any other version
-    /// will return an `InvalidInputError`.
+    /// Returns a tuple containing the number of bytes read and a frame. If padding
+    /// is encountered then `None` is returned.
+
     #[inline]
     pub fn read_from(reader: &mut Reader, version: Version) -> TagResult<Option<(u32, Frame)>> {
         match version {
@@ -282,19 +312,19 @@ impl Frame {
         }
     }
 
-    /// Creates a vector representation of the content suitable for writing to an ID3 tag.
+    /// Creates a vector representation of the fields of a frame suitable for writing to an ID3 tag.
     #[inline]
-    pub fn content_to_bytes(&self) -> Vec<u8> {
-        let request = EncoderRequest { version: self.version(), encoding: self.encoding, content: &self.content };
+    pub fn fields_to_bytes(&self) -> Vec<u8> {
+        let request = EncoderRequest { version: self.version(), encoding: self.encoding().unwrap_or(self.id.version().default_encoding()), fields: self.fields.as_slice() };
         parsers::encode(request)
     }
 
     // Parsing {{{
-    /// Parses the provided data and sets the `content` field. If the compression flag is set to
-    /// true then decompression will be performed.
+    /// Parses the provided data into the field storage for the frame. If the compression
+    /// flag is set to true then decompression will be performed.
     ///
     /// Returns `Err` if the data is invalid for the frame type.
-    pub fn parse_data(&mut self, data: &[u8]) -> TagResult<()> {
+    pub fn parse_fields(&self, data: &[u8]) -> TagResult<Vec<Field>> {
         let decompressed_opt = if self.flags.compression {
             Some(flate::inflate_bytes_zlib(data).unwrap())
         } else {
@@ -303,77 +333,42 @@ impl Frame {
 
         let result = try!(parsers::decode(DecoderRequest {
             id: self.id,
+            encoding: self.encoding(),
             data: match decompressed_opt {
                 Some(ref decompressed) => decompressed.as_slice(),
                 None => data
             }
         }));
 
-        self.encoding = result.encoding;
-        self.content = result.content;
-
-        Ok(())
+        Ok(result.fields)
     }
 
-    /// Reparses the frame's data.
+    /// Serializes and reparses the frame's fields; should be a nop.
     #[inline]
-    pub fn reparse(&mut self) -> TagResult<()> {
-        let data = self.content_to_bytes();
-        self.parse_data(data.as_slice())
+    pub fn reparse(&mut self) {
+        let data = self.fields_to_bytes();
+        self.fields = self.parse_fields(data.as_slice()).unwrap();
     }
     // }}}
 
     /// Returns a string representing the parsed content.
-    ///
-    /// Returns `None` if the parsed content can not be represented as text.
-    ///
-    /// # Example
-    /// ```
-    /// use id3::frame::{mod, Frame};
-    /// use id3::Content::{ExtendedTextContent, TextContent};
-    ///
-    /// let mut title_frame = Frame::new("TIT2");
-    /// title_frame.content = TextContent("title".into_string());
-    /// assert_eq!(title_frame.text().unwrap().as_slice(), "title");
-    ///
-    /// let mut txxx_frame = Frame::new("TXXX".into_string());
-    /// txxx_frame.content = ExtendedTextContent(frame::ExtendedText {
-    ///     key: "key".into_string(),
-    ///     value: "value".into_string()
-    /// });
-    /// assert_eq!(txxx_frame.text().unwrap().as_slice(), "key: value");
-    /// ```
+    #[deprecated = "This API is does not correspond to ID3v2 semantics and will be removed."]
     pub fn text(&self) -> Option<String> {
-        match self.content {
-            TextContent(ref content) => Some(content.clone()),
-            LinkContent(ref content) => Some(content.clone()),
-            LyricsContent(ref content) => Some(content.text.clone()),
-            ExtendedTextContent(ref content) => Some(format!("{}: {}", content.key, content.value)),
-            ExtendedLinkContent(ref content) => Some(format!("{}: {}", content.description, content.link)),
-            CommentContent(ref content) => Some(format!("{}: {}", content.description, content.text)),
-            _ => None
-        }
+        None
     }
 
     /// Returns a string describing the frame type.
     #[inline]
-    pub fn description(&self) -> &str {
-        util::frame_description(match self.id {
-            Id::V2(v2_id) => match util::convert_id_2_to_3(v2_id) {
-                Some(id) => id,
-                None => return "Unknown ID3v2.2 frame",
-            },
-            Id::V3(id) => id,
-            Id::V4(id) => id,
-        })
+    pub fn description(&self) -> &'static str {
+        util::frame_description(self.id)
     }
 }
 
 // Tests {{{
 #[cfg(test)]
 mod tests {
-    use frame::{Id, Frame, FrameFlags, Encoding};
-    use super::super::id3v2::Version;
+    use id3v2::frame::{Id, Frame, FrameFlags, Encoding};
+    use id3v2::Version;
     use util;
 
     #[test]
@@ -416,7 +411,8 @@ mod tests {
         data.push(encoding as u8);
         data.extend(util::string_to_utf16(text).into_iter());
 
-        frame.parse_data(data.as_slice()).unwrap();
+        frame.fields = frame.parse_fields(data.as_slice()).unwrap();
+        println!("{}", frame.fields);
 
         let mut bytes = Vec::new();
         bytes.push_all(id.as_slice());
@@ -440,7 +436,8 @@ mod tests {
         data.push(encoding as u8);
         data.extend(util::string_to_utf16(text).into_iter());
 
-        frame.parse_data(data.as_slice()).unwrap();
+        frame.fields = frame.parse_fields(data.as_slice()).unwrap();
+        println!("{}", frame.fields);
 
         let mut bytes = Vec::new();
         bytes.push_all(id.as_slice());
@@ -468,7 +465,7 @@ mod tests {
         data.push(encoding as u8);
         data.extend(util::string_to_utf16(text).into_iter());
 
-        frame.parse_data(data.as_slice()).unwrap();
+        frame.fields = frame.parse_fields(data.as_slice()).unwrap();
 
         let mut bytes = Vec::new();
         bytes.push_all(id.as_slice());

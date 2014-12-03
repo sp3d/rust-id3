@@ -1,6 +1,10 @@
 use std::cmp::min;
-use frame::{mod, Frame, Encoding, Picture, PictureType, Id};
-use frame::Content::{PictureContent, CommentContent, TextContent, ExtendedTextContent, LyricsContent};
+use self::frame::{Frame, Encoding, PictureType, Id};
+use self::frame::field::Field;
+use util;
+
+pub mod frame;
+pub mod simple;
 
 /// An ID3 tag containing metadata frames. 
 #[deriving(Show)]
@@ -21,7 +25,7 @@ pub struct Tag {
 }
 
 /// Flags used in the ID3v2 header.
-#[deriving(Show)]
+#[deriving(Show, Copy)]
 pub struct TagFlags {
     /// Indicates whether or not unsynchronization is used.
     pub unsynchronization: bool,
@@ -102,7 +106,7 @@ impl TagFlags {
 /// The version of an ID3v2 tag. Supported versions include 2.2, 2.3, and 2.4. When writing new
 /// tags, prefer the highest possible version unless specific legacy software demands otherwise.
 #[allow(non_camel_case_types, missing_docs)]
-#[deriving(Show, PartialEq, Eq, PartialOrd)]
+#[deriving(Show, PartialEq, Eq, PartialOrd, Copy)]
 pub enum Version {
     V2 = 2,
     V3 = 3,
@@ -125,8 +129,21 @@ impl Version {
 
 impl Version {
     /// Returns the way this ID3v2 version is encoded in an ID3 tag.
+    #[inline]
     pub fn to_bytes(&self) -> [u8, ..2] {
         [*self as u8, 0]
+    }
+    /// Returns the "best" text encoding compatible with this version of tag.
+    ///
+    /// For ID3 versions at least v2.4 this is UTF8. For versions less than v2.4,
+    /// this is UTF16.
+    #[inline]
+    pub fn default_encoding(&self) -> Encoding {
+        if *self >= Version::V4 {
+            Encoding::UTF8
+        } else {
+            Encoding::UTF16
+        }
     }
 }
 // Frame ID Querying {{{
@@ -204,32 +221,6 @@ impl Tag {
         self.modified_offset = 0;
 
         self.frames.retain(|frame: &Frame| !remove.contains(&(frame as *const _)));
-    }
-
-    /// Returns the default unicode encoding that should be used for this tag.
-    ///
-    /// For ID3 versions at least v2.4 this returns UTF8. For versions less than v2.4 this
-    /// returns UTF16.
-    ///
-    /// # Example
-    /// ```
-    /// use id3::id3v2;
-    /// use id3::id3v2::Version::{V3, V4};
-    /// use id3::Encoding::{UTF16, UTF8};
-    ///
-    /// let mut tag_v3 = id3v2::Tag::with_version(V3);
-    /// assert_eq!(tag_v3.default_encoding(), UTF16);
-    ///
-    /// let mut tag_v4 = id3v2::Tag::with_version(V4);
-    /// assert_eq!(tag_v4.default_encoding(), UTF8);
-    /// ```
-    #[inline]
-    pub fn default_encoding(&self) -> Encoding {
-        if self.version == Version::V4 {
-            Encoding::UTF8
-        } else {
-            Encoding::UTF16
-        }
     }
 
     /// Returns a vector of references to all frames in the tag.
@@ -328,20 +319,28 @@ impl Tag {
         true
     }
 
-    /// Adds a text frame using the default text encoding.
+    /// Adds a text frame using the default text encoding. Returns whether the
+    /// ID was a valid text frame ID and the frame successfully created.
     ///
     /// # Example
     /// ```
     /// use id3::id3v2;
+    /// use id3::frame::Id;
     ///
     /// let mut tag = id3v2::Tag::new();
-    /// tag.add_text_frame("TCON", "Metal");
+    /// tag.add_text_frame(Id::V4(b!("TCON")), "Metal");
     /// assert_eq!(tag.get_frame_by_id("TCON").unwrap().content.text().as_slice(), "Metal");
     /// ```
     #[inline]
-    pub fn add_text_frame<V: StrAllocating>(&mut self, id: frame::Id, text: V) {
-        let encoding = self.default_encoding();
-        self.add_text_frame_enc(id, text, encoding);
+    pub fn add_text_frame(&mut self, id: frame::Id, text: &str) -> bool {
+        match Frame::new_text_frame(id, text) {
+            Some(frame) => {
+                self.remove_frames_by_id(id);
+                self.frames.push(frame);
+                true
+            }
+            None => false,
+        }
     }
 
     /// Adds a text frame using the specified text encoding.
@@ -355,13 +354,16 @@ impl Tag {
     /// tag.add_text_frame_enc("TRCK", "1/13", UTF16);
     /// assert_eq!(tag.get_frame_by_id("TRCK").unwrap().content.text().as_slice(), "1/13");
     /// ```
-    pub fn add_text_frame_enc<V: StrAllocating>(&mut self, id: frame::Id, text: V, encoding: Encoding) {
+    /*
+    //TODO(sp3d): find a more type-safe way to encode this
+    as formulated, there are lots of errors that can be made:
+    incompatible version+encoding, lossy transcoding into Latin-1, non-text IDs
+    some of these should be preventable in the typesystem
+    or handled explicitly as behavior option arguments for encoding*/
+    pub fn add_text_frame_enc(&mut self, id: frame::Id, text: &str, encoding: Encoding) {
         self.remove_frames_by_id(id);
-       
-        let mut frame = Frame::new(id);
+        let mut frame = Frame::new_text_frame(id, text/*, encoding*/).unwrap();
         frame.set_encoding(encoding);
-        frame.content = TextContent(text.into_string());
-
         self.frames.push(frame);
     }
 
@@ -402,13 +404,13 @@ impl Tag {
         self.modified_offset = modified_offset;
     }
 
-    /// Returns the `TextContent` string for the frame with the specified identifier.
-    /// Returns `None` if the frame with the specified ID can't be found or if the content is not
-    /// `TextContent`.
-    pub fn text_for_frame_id(&self, id: frame::Id) -> Option<String> {
+    /// Returns the content of a text frame with the specified identifier,
+    /// converted to UTF8, or `None` if the frame with the specified ID can't be found, if the content is not
+    /// textual.
+    pub fn text_frame_text(&self, id: frame::Id) -> Option<String> {
         match self.get_frame_by_id(id) {
-            Some(frame) => match frame.content {
-                TextContent(ref text) => Some(text.clone()),
+            Some(frame) => match frame.fields.as_slice() {
+                [Field::TextEncoding(encoding), Field::String(ref text)] => util::string_from_encoding(encoding, text.as_slice()),
                 _ => None
             },
             None => None
@@ -428,14 +430,14 @@ impl Tag {
     /// let mut tag = id3v2::Tag::new();
     ///
     /// let mut frame = Frame::new("TXXX");
-    /// frame.content = ExtendedTextContent(frame::ExtendedText { 
+    /// frame.fields = ExtendedTextContent(frame::ExtendedText { 
     ///     key: "key1".into_string(),
     ///     value: "value1".into_string()
     /// });
     /// tag.add_frame(frame);
     ///
     /// let mut frame = Frame::new("TXXX");
-    /// frame.content = ExtendedTextContent(frame::ExtendedText { 
+    /// frame.fields = ExtendedTextContent(frame::ExtendedText { 
     ///     key: "key2".into_string(),
     ///     value: "value2".into_string()
     /// }); 
@@ -448,8 +450,9 @@ impl Tag {
     pub fn txxx(&self) -> Vec<(String, String)> {
         let mut out = Vec::new();
         for frame in self.get_frames_by_id(self.version().txxx_id()).iter() {
-            match frame.content {
-                ExtendedTextContent(ref ext) => out.push((ext.key.clone(), ext.value.clone())),
+            match frame.fields.as_slice() {
+                //TODO(sp3d): rebuild this on top of fields
+                //ExtendedTextContent(ref ext) => out.push((ext.key.clone(), ext.value.clone())),
                 _ => { }
             }
         }
@@ -473,8 +476,9 @@ impl Tag {
     /// assert!(tag.txxx().contains(&("key2".into_string(), "value2".into_string())));
     /// ```
     #[inline]
-    pub fn add_txxx<K: StrAllocating, V: StrAllocating>(&mut self, key: K, value: V) {
-        let encoding = self.default_encoding();
+    //pub fn add_txxx<E: Encoding>(&mut self, key: EncodedString<E>, value: EncodedString<E>) {
+    pub fn add_txxx(&mut self, key: &str, value: &str) {
+        let encoding = self.version().default_encoding();
         self.add_txxx_enc(key, value, encoding);
     }
 
@@ -494,17 +498,19 @@ impl Tag {
     /// assert!(tag.txxx().contains(&("key1".into_string(), "value1".into_string())));
     /// assert!(tag.txxx().contains(&("key2".into_string(), "value2".into_string())));
     /// ```
-    pub fn add_txxx_enc<K: StrAllocating, V: StrAllocating>(&mut self, key: K, value: V, encoding: Encoding) {
+    //TODO(sp3d): there has to be a better way of dealing with encoded strings!
+    pub fn add_txxx_enc(&mut self, key: &str, value: &str, encoding: Encoding) {
         let key = key.into_string();
 
         self.remove_txxx(Some(key.as_slice()), None);
 
         let mut frame = Frame::new(self.version().txxx_id());
         frame.set_encoding(encoding);
-        frame.content = ExtendedTextContent(frame::ExtendedText { 
+        //TODO(sp3d): rebuild this on top of fields
+        /*frame.fields = ExtendedTextContent(frame::ExtendedText { 
             key: key, 
             value: value.into_string() 
-        });
+        });*/
         
         self.frames.push(frame);
     }
@@ -537,39 +543,34 @@ impl Tag {
     /// tag.remove_txxx(None, None);
     /// assert_eq!(tag.txxx().len(), 0);
     /// ```
-    pub fn remove_txxx(&mut self, key: Option<&str>, value: Option<&str>) {
+    pub fn remove_txxx(&mut self, key: Option<&str>, val: Option<&str>) {
         let mut modified_offset = self.modified_offset;
 
         let id = self.version().txxx_id();
         self.frames.retain(|frame| {
             let mut key_match = false;
-            let mut value_match = false;
+            let mut val_match = false;
 
             if frame.id == id {
-                match frame.content {
-                    ExtendedTextContent(ref ext) => {
-                        match key {
-                            Some(s) => key_match = s == ext.key.as_slice(),
-                            None => key_match = true
-                        }
-
-                        match value {
-                            Some(s) => value_match = s == ext.value.as_slice(),
-                            None => value_match = true 
-                        }
+                match frame.fields.as_slice() {
+                    [Field::TextEncoding(_), Field::String(ref f_key), Field::String(ref f_val)] => {
+                        //TODO(sp3d): checking byte equality is wrong; encodings need to be considered
+                        key_match = key.unwrap_or("").as_bytes() == f_key.as_slice();
+                        val_match = val.unwrap_or("").as_bytes() == f_val.as_slice();
                     },
-                    _ => { // remove frames that we can't parse
+                    _ => {
+                        // remove frames that we can't parse
                         key_match = true;
-                        value_match = true;
+                        val_match = true;
                     }
                 }
             }
 
-            if key_match && value_match && frame.offset != 0 {
+            if key_match && val_match && frame.offset != 0 {
                 modified_offset = min(modified_offset, frame.offset);
             }
 
-            !(key_match && value_match) // true if we want to keep the item
+            !(key_match && val_match) // true if we want to keep the item
         });
 
         self.modified_offset = modified_offset;
@@ -587,20 +588,20 @@ impl Tag {
     /// let mut tag = id3v2::Tag::new();
     /// 
     /// let mut frame = Frame::new("APIC");
-    /// frame.content = PictureContent(Picture::new());
+    /// frame.fields = PictureContent(Picture::new());
     /// tag.add_frame(frame);
     ///
     /// let mut frame = Frame::new("APIC");
-    /// frame.content = PictureContent(Picture::new());
+    /// frame.fields = PictureContent(Picture::new());
     /// tag.add_frame(frame);
     ///
     /// assert_eq!(tag.pictures().len(), 2);
     /// ```
-    pub fn pictures(&self) -> Vec<&Picture> {
+    pub fn pictures(&self) -> Vec<&simple::Picture> {
+        //TODO(sp3d): rebuild this on top of fields
         let mut pictures = Vec::new();
         for frame in self.get_frames_by_id(self.version().picture_id()).iter() {
-            match frame.content {
-                PictureContent(ref picture) => pictures.push(picture),
+            match frame.fields.as_slice() {
                 _ => { }
             }
         }
@@ -622,7 +623,7 @@ impl Tag {
     /// assert_eq!(tag.pictures()[0].mime_type.as_slice(), "image/png");
     /// ```
     #[inline]
-    pub fn add_picture<T: StrAllocating>(&mut self, mime_type: T, picture_type: PictureType, data: Vec<u8>) {
+    pub fn add_picture(&mut self, mime_type: &str, picture_type: PictureType, data: Vec<u8>) {
         self.add_picture_enc(mime_type, picture_type, "", data, Encoding::Latin1);
     }
 
@@ -641,13 +642,15 @@ impl Tag {
     /// assert_eq!(tag.pictures().len(), 1);
     /// assert_eq!(tag.pictures()[0].mime_type.as_slice(), "image/png");
     /// ```
-    pub fn add_picture_enc<S: StrAllocating, T: StrAllocating>(&mut self, mime_type: S, picture_type: PictureType, description: T, data: Vec<u8>, encoding: Encoding) {
+    pub fn add_picture_enc(&mut self, mime_type: &str, picture_type: PictureType, description: &str, data: Vec<u8>, encoding: Encoding) {
+        //TODO(sp3d): rebuild this on top of fields
+        /*
         self.remove_picture_type(picture_type);
 
         let mut frame = Frame::new(self.version().picture_id());
 
         frame.set_encoding(encoding);
-        frame.content = PictureContent(Picture { 
+        frame.fields = PictureContent(Picture { 
             mime_type: mime_type.into_string(), 
             picture_type: picture_type, 
             description: description.into_string(), 
@@ -655,6 +658,7 @@ impl Tag {
         });
 
         self.frames.push(frame);
+        */
     }
 
     /// Removes all pictures of the specified type.
@@ -679,16 +683,17 @@ impl Tag {
         let id = self.version().picture_id();
         self.frames.retain(|frame| {
             if frame.id == id {
-                let pic = match frame.content {
-                    PictureContent(ref picture) => picture,
+                match frame.fields.as_slice() {
+                    //TODO(sp3d): rebuild this on top of fields
+                    //PictureContent(ref picture) => picture,
                     _ => return false
                 };
 
-                if pic.picture_type == picture_type && frame.offset != 0 {
+                if /*pic.picture_type == picture_type && */frame.offset != 0 {
                     modified_offset = min(modified_offset, frame.offset);
                 }
 
-                return pic.picture_type != picture_type
+                return false/*pic.picture_type != picture_type*/
             }
 
             true
@@ -709,7 +714,7 @@ impl Tag {
     /// let mut tag = id3v2::Tag::new();
     ///
     /// let mut frame = Frame::new("COMM");
-    /// frame.content = CommentContent(frame::Comment {
+    /// frame.fields = CommentContent(frame::Comment {
     ///     lang: "eng".into_string(),
     ///     description: "key1".into_string(),
     ///     text: "value1".into_string()
@@ -717,7 +722,7 @@ impl Tag {
     /// tag.add_frame(frame);
     ///
     /// let mut frame = Frame::new("COMM");
-    /// frame.content = CommentContent(frame::Comment { 
+    /// frame.fields = CommentContent(frame::Comment { 
     ///     lang: "eng".into_string(),
     ///     description: "key2".into_string(),
     ///     text: "value2".into_string()
@@ -731,9 +736,10 @@ impl Tag {
     pub fn comments(&self) -> Vec<(String, String)> {
         let mut out = Vec::new();
         for frame in self.get_frames_by_id(self.version().comment_id()).iter() {
-            match frame.content {
-                CommentContent(ref comment) => out.push((comment.description.clone(), 
-                                                         comment.text.clone())),
+            match frame.fields.as_slice() {
+                //TODO(sp3d): rebuild this on top of fields
+                /*CommentContent(ref comment) => out.push((comment.description.clone(), 
+                                                         comment.text.clone())),*/
                 _ => { }
             }
         }
@@ -757,8 +763,8 @@ impl Tag {
     /// assert!(tag.comments().contains(&("key2".into_string(), "value2".into_string())));
     /// ```
     #[inline]
-    pub fn add_comment<K: StrAllocating, V: StrAllocating>(&mut self, description: K, text: V) {
-        let encoding = self.default_encoding();
+    pub fn add_comment(&mut self, description: &str, text: &str) {
+        let encoding = self.version().default_encoding();
         self.add_comment_enc("eng", description, text, encoding);
     }
 
@@ -778,19 +784,20 @@ impl Tag {
     /// assert!(tag.comments().contains(&("key1".into_string(), "value1".into_string())));
     /// assert!(tag.comments().contains(&("key2".into_string(), "value2".into_string())));
     /// ```
-    pub fn add_comment_enc<L: StrAllocating, K: StrAllocating, V: StrAllocating>(&mut self, lang: L, description: K, text: V, encoding: Encoding) {
+    pub fn add_comment_enc(&mut self, lang: &str, description: &str, text: &str, encoding: Encoding) {
         let description = description.into_string();
 
         self.remove_comment(Some(description.as_slice()), None);
 
         let mut frame = Frame::new(self.version().comment_id());
 
-        frame.set_encoding(encoding);
-        frame.content = CommentContent(frame::Comment { 
+        //TODO(sp3d): rebuild this on top of fields
+        /*frame.set_encoding(encoding);
+        frame.fields = CommentContent(frame::Comment { 
             lang: lang.into_string(), 
             description: description, 
             text: text.into_string() 
-        });
+        });*/
        
         self.frames.push(frame);
     }
@@ -832,7 +839,9 @@ impl Tag {
             let mut text_match = false;
 
             if frame.id == id {
-                match frame.content {
+                match frame.fields.as_slice() {
+                    //TODO(sp3d): rebuild this on top of fields
+                    /*
                     CommentContent(ref comment) =>  {
                         match description {
                             Some(s) => description_match = s == comment.description.as_slice(),
@@ -843,7 +852,7 @@ impl Tag {
                             Some(s) => text_match = s == comment.text.as_slice(),
                             None => text_match = true 
                         }
-                    },
+                    },*/
                     _ => { // remove frames that we can't parse
                         description_match = true;
                         text_match = true;
@@ -874,7 +883,7 @@ impl Tag {
     /// assert_eq!(tag.artist().unwrap().as_slice(), "artist");
     /// ```
     #[inline]
-    pub fn set_artist_enc<T: StrAllocating>(&mut self, artist: T, encoding: Encoding) {
+    pub fn set_artist_enc(&mut self, artist: &str, encoding: Encoding) {
         let id = self.version().artist_id();
         self.add_text_frame_enc(id, artist, encoding);
     }
@@ -892,7 +901,7 @@ impl Tag {
     /// assert_eq!(tag.album_artist().unwrap().as_slice(), "album artist");
     /// ```
     #[inline]
-    pub fn set_album_artist_enc<T: StrAllocating>(&mut self, album_artist: T, encoding: Encoding) {
+    pub fn set_album_artist_enc(&mut self, album_artist: &str, encoding: Encoding) {
         self.remove_frames_by_id(Id::V3(b!("TSOP")));
         self.remove_frames_by_id(Id::V4(b!("TSOP")));
         let id = self.version().album_artist_id();
@@ -912,7 +921,7 @@ impl Tag {
     /// assert_eq!(tag.album().unwrap().as_slice(), "album");
     /// ```
     #[inline]
-    pub fn set_album_enc<T: StrAllocating>(&mut self, album: T, encoding: Encoding) {
+    pub fn set_album_enc(&mut self, album: &str, encoding: Encoding) {
         let id = self.version().album_id();
         self.add_text_frame_enc(id, album, encoding);
     }
@@ -930,7 +939,7 @@ impl Tag {
     /// assert_eq!(tag.title().unwrap().as_slice(), "title");
     /// ```
     #[inline]
-    pub fn set_title_enc<T: StrAllocating>(&mut self, title: T, encoding: Encoding) {
+    pub fn set_title_enc(&mut self, title: &str, encoding: Encoding) {
         self.remove_frames_by_id(Id::V3(b!("TSOT")));
         self.remove_frames_by_id(Id::V4(b!("TSOT")));
         let id = self.version().title_id();
@@ -950,7 +959,7 @@ impl Tag {
     /// assert_eq!(tag.genre().unwrap().as_slice(), "genre");
     /// ```
     #[inline]
-    pub fn set_genre_enc<T: StrAllocating>(&mut self, genre: T, encoding: Encoding) {
+    pub fn set_genre_enc(&mut self, genre: &str, encoding: Encoding) {
         let id = self.version().genre_id();
         self.add_text_frame_enc(id, genre, encoding);
     }
@@ -981,10 +990,11 @@ impl Tag {
     /// ```
     pub fn year(&self) -> Option<uint> {
         let id = self.version().year_id();
+        //TODO(sp3d): rebuild this on top of fields
         match self.get_frame_by_id(id) {
             Some(frame) => {
-                match frame.content {
-                    TextContent(ref text) => from_str(text.as_slice()),
+                match frame.fields.as_slice() {
+                    //TextContent(ref text) => from_str(text.as_slice()),
                     _ => None
                 }
             },
@@ -1005,7 +1015,7 @@ impl Tag {
     #[inline]
     pub fn set_year(&mut self, year: uint) {
         let id = self.version().year_id();
-        self.add_text_frame_enc(id, format!("{}", year), Encoding::Latin1);
+        self.add_text_frame_enc(id, format!("{}", year).as_slice(), Encoding::Latin1);
     }
 
     /// Sets the year (TYER) using the specified text encoding.
@@ -1022,15 +1032,16 @@ impl Tag {
     #[inline]
     pub fn set_year_enc(&mut self, year: uint, encoding: Encoding) {
         let id = self.version().year_id();
-        self.add_text_frame_enc(id, format!("{}", year), encoding);
+        self.add_text_frame_enc(id, format!("{}", year).as_slice(), encoding);
     }
 
     /// Returns the (track, total_tracks) tuple.
     pub fn track_pair(&self) -> Option<(u32, Option<u32>)> {
         match self.get_frame_by_id(self.version().track_id()) {
             Some(frame) => {
-                match frame.content {
-                    TextContent(ref text) => {
+                //TODO(sp3d): rebuild this on top of fields
+                match frame.fields.as_slice() {
+                    /*TextContent(ref text) => {
                         let split: Vec<&str> = text.as_slice().splitn(2, '/').collect();
 
                         let total_tracks = if split.len() == 2 {
@@ -1046,7 +1057,7 @@ impl Tag {
                             Some(track) => Some((track, total_tracks)),
                             None => None
                         }
-                    },
+                    },*/
                     _ => None
                 }
             },
@@ -1073,7 +1084,7 @@ impl Tag {
         };
 
         let id = self.version().track_id();
-        self.add_text_frame_enc(id, text, encoding);
+        self.add_text_frame_enc(id, text.as_slice(), encoding);
     }
 
 
@@ -1096,7 +1107,7 @@ impl Tag {
         };
 
         let id = self.version().track_id();
-        self.add_text_frame_enc(id, text, encoding);
+        self.add_text_frame_enc(id, text.as_slice(), encoding);
     }
 
 
@@ -1112,18 +1123,19 @@ impl Tag {
     /// tag.v2.as_mut().unwrap().set_lyrics_enc("eng", "description", "lyrics", UTF16);
     /// assert_eq!(tag.lyrics().unwrap().as_slice(), "lyrics");
     /// ```
-    pub fn set_lyrics_enc<L: StrAllocating, K: StrAllocating, V: StrAllocating>(&mut self, lang: L, description: K, text: V, encoding: Encoding) {
+    pub fn set_lyrics_enc(&mut self, lang: &str, description: &str, text: &str, encoding: Encoding) {
         let id = self.version().lyrics_id();
         self.remove_frames_by_id(id);
 
         let mut frame = Frame::new(id);
 
         frame.set_encoding(encoding);
-        frame.content = LyricsContent(frame::Lyrics { 
+        //TODO(sp3d): rebuild this on top of fields
+        /*frame.fields = LyricsContent(frame::Lyrics { 
             lang: lang.into_string(), 
             description: description.into_string(), 
             text: text.into_string() 
-        });
+        });*/
         
         self.frames.push(frame);
     }

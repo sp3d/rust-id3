@@ -1,14 +1,5 @@
 #![macro_escape]
 
-macro_rules! try_delim {
-    ($enc:expr, $data:expr, $i:expr, $msg:expr) => {
-        match util::find_delim($enc, $data, $i) {
-            Some(i) => i,
-            None => return Err(TagError::new(::audiotag::ErrorKind::InvalidInputError, $msg))
-        }
-    };
-}
-
 macro_rules! try_encoding {
     ($c:expr) => {
         {

@@ -3,7 +3,7 @@ use std::num::Bounded;
 use std::fmt;
 
 /// The fields in an ID3v1 tag, including the "1.1" track number field
-#[deriving(FromPrimitive)]
+#[deriving(FromPrimitive, Copy)]
 #[allow(missing_docs)]
 pub enum Fields {
     Title,
@@ -32,6 +32,7 @@ pub static TAGPLUS_OFFSET: i64 = 355;
 static XLENGTHS: &'static [i8]=&[60, 60, 60, 30, 6, 6];
 
 /// The fields in an extended ID3v1 tag
+#[deriving(FromPrimitive, Copy)]
 #[allow(missing_docs)]
 pub enum XFields {
     XTitle,
@@ -50,7 +51,7 @@ impl XFields {
 }
 
 /// A struct representing ID3v1's notion of a four-digit year
-#[deriving(Show)]
+#[deriving(Show, Copy)]
 pub struct Year
 {
     value: u16,
@@ -82,6 +83,7 @@ impl Bounded for Year {
 }
 
 /// A struct representing ID3v1 extended time tags--encoded in the format "mmm:ss", a valid value can be a maximum of 999m99s = 999*60+99 = 60039 seconds
+#[deriving(Copy)]
 pub struct Time
 {
     value: u16,
@@ -395,12 +397,13 @@ pub fn truncate_zeros(mut s: &[u8]) -> &[u8] {
     s
 }
 
-/*fn main() {
-    let mut f=::std::io::fs::File::open(&Path::new(&::std::os::args()[1]));
+#[test]
+fn smoke_test() {
+    let mut f=::std::io::fs::File::open(&Path::new("test.mp3"));
     f.seek(-TAG_OFFSET, SeekEnd);
     let mut tag=read(&mut f).unwrap();
     println!("{}", tag);
     f.seek(-TAGPLUS_OFFSET, SeekEnd);
     read_xtag(&mut f, &mut tag);
     println!("{}", tag);
-}*/
+}

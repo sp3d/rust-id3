@@ -1,4 +1,4 @@
-use frame::Frame;
+use id3v2::frame::Frame;
 use audiotag::TagResult;
 
 pub use self::v2::FrameV2;
@@ -15,7 +15,6 @@ macro_rules! id_or_padding {
             }
             buf[0] = byte;
             try!($reader.read_at_least($n - 1, buf.slice_from_mut(1)));
-            //try_string!(buf)
             buf
         }
     };

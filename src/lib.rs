@@ -20,7 +20,8 @@
 //!
 //! ```no_run
 //! // you need to use AudioTag in order to use the trait features
-//! use id3::{id3v2, AudioTag, Frame};
+//! use id3::{id3v2, AudioTag};
+//! use id3::id3v2::Frame;
 //! use id3::id3v2::Version::V4;
 //! use id3::tag::FileTags;
 //! use id3::Content::TextContent;
@@ -41,7 +42,7 @@
 //! ```
 
 #![crate_name = "id3"]
-#![crate_type = "rlib"]
+#![crate_type = "dylib"]
 #![warn(missing_docs)]
 #![feature(macro_rules)]
 #![feature(globs)]
@@ -59,15 +60,15 @@ extern crate id3_macros;
 extern crate audiotag; 
 
 pub use self::audiotag::{AudioTag, TagResult, TagError, ErrorKind};
-pub use frame::{Frame, FrameFlags, Encoding, Content};
+pub use id3v2::frame::{Frame, FrameFlags, Encoding};
 
 mod macros;
 
 /// Utilities used for reading/writing ID3 tags.
 pub mod util;
 
-/// Contains types and methods for operating on ID3 frames.
-pub mod frame;
+/// Contains types and methods for operating on ID3v2 frames.
+//pub mod frame;
 
 pub mod id3v1;
 pub mod id3v2;
