@@ -185,13 +185,13 @@ impl ExtendedHeader {
         4/*size field*/+1/*bytes of flags*/+flag_data_len
     }
     /// Write the extended header to a writer.
-    pub fn serialize<W: Write>(&self, writer: &mut W, version: Version) -> io::Result<()> {
+    pub fn write_to(&self, writer: &mut Write, version: Version) -> io::Result<u32> {
         let size = self.size() as u32;
         //TODO: verify endianness?
         try!(writer.write(&util::u32_to_bytes(util::synchsafe(size))));
         match version
         {
-            Version::V2 => panic!("attempting to serialize extended header for an ID3v2.2 tag"),
+            Version::V2 => panic!("attempting to write extended header for an ID3v2.2 tag"),
             Version::V3 => try!(writer.write(&[1u8])),
             Version::V4 => try!(writer.write(&[42u8])),//TODO(sp3d): try!(writer.write(n_flag_bytes)),
         };
@@ -201,7 +201,7 @@ impl ExtendedHeader {
             try!(writer.write(&[vec.len() as u8]));
             try!(writer.write(&*vec));
         }
-        Ok(())
+        Ok(size)
     }
     /// Parse an ID3v2 extended header for a tag with the given ID3v2 version from a reader.
     /// The version must be Version::V3 or Version::V4.
@@ -568,6 +568,11 @@ impl Tag {
         try!(writer.write(&util::u32_to_bytes(u32::to_be(util::synchsafe(self.size())))));
 
         let mut bytes_written = 10;
+
+        if let Some(ref extended) = self.extended_header {
+            debug!("writing extended header");
+            try!(extended.write_to(writer, self.version));
+        };
 
         for frame in &self.frames {
             debug!("writing {:?}", frame.id);
