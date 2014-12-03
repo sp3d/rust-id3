@@ -6,7 +6,7 @@ use util;
 
 pub struct FrameV2;
 impl FrameStream for FrameV2 {
-    fn read(reader: &mut Read, _: Option<FrameV2>) -> Result<Option<(u32, Frame)>, Error> {
+    fn read(reader: &mut Read, _: Option<FrameV2>) -> Result<(u32, Option<Frame>), Error> {
         let id = id_or_padding!(reader, 3);
         debug!("reading {:?}", id); 
 
@@ -18,7 +18,7 @@ impl FrameStream for FrameV2 {
         let mut data = vec![0; read_size as usize]; read_all!(reader, &mut *data);
         frame.fields = try!(frame.parse_fields(&*data));
 
-        Ok(Some((6 + read_size, frame)))
+        Ok((6 + read_size, Some(frame)))
     }
 
     fn write(writer: &mut Write, frame: &Frame, _: Option<FrameV2>) -> Result<u32, io::Error> {

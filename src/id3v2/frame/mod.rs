@@ -395,11 +395,14 @@ impl Frame {
 
     /// Attempts to read a frame from the reader.
     ///
-    /// Returns a tuple containing the number of bytes read and a frame. If padding
-    /// is encountered then `None` is returned.
+    /// Returns either an error or a tuple containing the number of bytes read
+    /// and (possibly) a frame.
+    ///
+    /// If padding is encountered (detected by an initial zero byte) then
+    /// `Ok((length of padding, None))` is returned.
 
     #[inline]
-    pub fn read_from(reader: &mut Read, version: Version) -> Result<Option<(u32, Frame)>, Error> {
+    pub fn read_from(reader: &mut Read, version: Version) -> Result<(u32, Option<Frame>), Error> {
         match version {
             Version::V2 => FrameStream::read(reader, None::<FrameV2>),
             Version::V3 => FrameStream::read(reader, None::<FrameV3>),

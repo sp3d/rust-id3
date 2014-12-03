@@ -8,7 +8,7 @@ use util;
 
 pub struct FrameV3;
 impl FrameStream for FrameV3 {
-    fn read(reader: &mut Read, _: Option<FrameV3>) -> Result<Option<(u32, Frame)>, Error> {
+    fn read(reader: &mut Read, _: Option<FrameV3>) -> Result<(u32, Option<Frame>), Error> {
         let id = id_or_padding!(reader, 4);
         debug!("reading {:?}", id); 
 
@@ -50,7 +50,7 @@ impl FrameStream for FrameV3 {
         let mut data = vec![0; read_size as usize]; read_all!(reader, &mut *data);
         frame.fields = try!(frame.parse_fields(&*data));
 
-        Ok(Some((10 + content_size, frame)))
+        Ok((10 + content_size, Some(frame)))
     }
 
     fn write(writer: &mut Write, frame: &Frame, _: Option<FrameV3>) -> Result<u32, io::Error> {

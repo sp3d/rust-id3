@@ -24,10 +24,8 @@ pub struct Tag {
     flags: TagFlags,
     /// A vector of frames included in the tag.
     pub frames: Vec<Frame>,
-    /// The size of the tag when read from a file.
-    size: u32,
-    /// The offset of the end of the last frame that was read.
-    offset: u32,
+    /// The size of padding which was included in the tag's serialized form.
+    padding_len: u32,
     /// Extended header data (ID3v2.3 or ID3v2.4), if present.
     extended_header: Option<ExtendedHeader>,
 }
@@ -493,7 +491,7 @@ pub fn read_tag<R: Read>(mut reader: &mut R) -> Result<Option<Tag>, io::Error> {
         panic!("ID3v2.2 compression is unsupported");
     }
 
-    tag.size = util::unsynchsafe(read_be_u32!(reader));
+    let tag_size = util::unsynchsafe(read_be_u32!(reader));
 
     let mut offset = 10;
 
@@ -504,24 +502,27 @@ pub fn read_tag<R: Read>(mut reader: &mut R) -> Result<Option<Tag>, io::Error> {
         offset += eh_size;
     }
 
-    while offset < tag.size as usize + 10 {
-        let (bytes_read, frame) = match Frame::read_from(reader, tag.version()) {
-            Ok(opt) => match opt {
-                Some(frame) => frame,
-                None => break //padding
+    let mut padding_len = 0;
+
+    while offset < tag_size as usize + 10 {
+        let frame = match Frame::read_from(reader, tag.version()) {
+            Ok((bytes_read, maybe_frame)) => {
+                offset += bytes_read as usize;
+                match maybe_frame {
+                    Some(frame) => frame,
+                    None => {padding_len += bytes_read; continue}, //start of padding
+                }
             },
             Err(err) => {
                 debug!("{}", err);
                 return Err(io::Error::new(InvalidInput, err.to_string()));
-            }
+            },
         };
 
         tag.frames.push(frame);
-
-        offset += bytes_read as usize;
     }
 
-    tag.offset = offset as u32;
+    tag.padding_len = padding_len as u32;
 
     Ok(Some(tag))
 }
@@ -531,22 +532,19 @@ impl Tag {
     /// Create a new ID3v2.4 tag with no frames.
     #[inline]
     pub fn new() -> Tag {
-        Tag {
-            version: Version::V4,
-            flags: TagFlags::new(Version::V4),
-            frames: Vec::new(),
-            size: 0,
-            offset: 0,
-            extended_header: None,
-        }
+        Tag::with_version(Version::V4)
     }
 
     /// Create a new ID3 tag with the specified version.
     #[inline]
     pub fn with_version(version: Version) -> Tag {
-        let mut tag = Tag::new();
-        tag.version = version;
-        tag
+        Tag {
+            version: version,
+            flags: TagFlags::new(version),
+            frames: Vec::new(),
+            padding_len: 0,
+            extended_header: None,
+        }
     }
 
     /// Get the tag's ID3v2 version.
