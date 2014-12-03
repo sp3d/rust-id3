@@ -2,7 +2,7 @@ use std::io::{SeekEnd, IoResult};
 use std::num::Bounded;
 use std::fmt;
 
-/// The fields in an ID3v1 tag, including the "1.1" track number field
+/// The fields in an ID3v1 tag, including the "1.1" track number field.
 #[deriving(FromPrimitive, Copy)]
 #[allow(missing_docs)]
 pub enum Fields {
@@ -24,14 +24,16 @@ impl Fields {
 static LENGTHS: &'static [i8]=&[30, 30, 30, 4, 30, -1, 1];
 
 static TAG: &'static [u8] = b"TAG";
+/// How far from the end of a file to probe for an ID3 tag signature.
 pub static TAG_OFFSET: i64 = 128;
 
 static TAGPLUS: &'static [u8] = b"TAG+";
+/// How far from the end of a file to probe for an extended ID3 tag signature.
 pub static TAGPLUS_OFFSET: i64 = 355;
 
 static XLENGTHS: &'static [i8]=&[60, 60, 60, 30, 6, 6];
 
-/// The fields in an extended ID3v1 tag
+/// The fields in an extended ID3v1 tag.
 #[deriving(FromPrimitive, Copy)]
 #[allow(missing_docs)]
 pub enum XFields {
@@ -50,7 +52,7 @@ impl XFields {
     }
 }
 
-/// A struct representing ID3v1's notion of a four-digit year
+/// ID3v1's notion of a four-digit year.
 #[deriving(Show, Copy)]
 pub struct Year
 {
@@ -82,7 +84,7 @@ impl Bounded for Year {
     }
 }
 
-/// A struct representing ID3v1 extended time tags--encoded in the format "mmm:ss", a valid value can be a maximum of 999m99s = 999*60+99 = 60039 seconds
+/// ID3v1 extended time tags--encoded in the format "mmm:ss", a valid value can be a maximum of 999m99s = 999*60+99 = 60039 seconds.
 #[deriving(Copy)]
 pub struct Time
 {
@@ -120,7 +122,7 @@ impl fmt::Show for Time {
     }
 }
 
-/// A structure containing parsed ID3v1 tag metadata.
+/// Parsed ID3v1 tag metadata.
 #[deriving(Show)]
 pub struct Tag {
     /// The full title (ID3v1 + extension if present).
@@ -233,7 +235,8 @@ impl<R: Reader + Seek> ID3v1Helpers for R {
     }
 }
 
-/// Checks for the existence of the bytes denoting an ID3v1 metadata block tag.
+/// Checks for presence of the signature indicating an ID3v1 tag at the reader's current offset.
+/// Consumes 3 bytes from the reader.
 #[inline]
 pub fn probe_tag<R: Reader>(reader: &mut R) -> IoResult<bool> {
     let mut x=&mut [0, ..3];
@@ -241,7 +244,8 @@ pub fn probe_tag<R: Reader>(reader: &mut R) -> IoResult<bool> {
     Ok(TAG == x[])
 }
 
-/// Checks for the existence of the bytes denoting an ID3v1 extended metadata tag.
+/// Checks for presence of the signature indicating an ID3v1 extended metadata tag at the reader's current offset.
+/// Consumes 4 bytes from the reader.
 #[inline]
 pub fn probe_xtag<R: Reader>(reader: &mut R) -> IoResult<bool> {
     let mut x=&mut [0, ..4];
@@ -314,7 +318,7 @@ fn parse_time(s: &[u8]) -> Time {
     }
 }
 
-/// Read an ID3v1 tag from a reader
+/// Read an ID3v1 tag from a reader.
 pub fn read<R: Reader>(reader: &mut R) -> IoResult<Tag> {
     use self::Fields::*;
     macro_rules! maybe_read {
@@ -348,7 +352,7 @@ pub fn read<R: Reader>(reader: &mut R) -> IoResult<Tag> {
     Ok(tag)
 }
 
-/// Read the extended portion of an extended ID3v1 tag from a reader, combining its data with a previously-read ID3v1 tag
+/// Read the extended portion of an extended ID3v1 tag from a reader, combining its data with a previously-read ID3v1 tag.
 pub fn read_xtag<R: Reader>(reader: &mut R, tag: &mut Tag) -> IoResult<()> {
     use self::Fields::*;
     use self::XFields::*;
@@ -389,7 +393,7 @@ fn extract_nz_88591(s: Vec<u8>) -> String {
     s.into_iter().take_while(|&c| c!=0).map(|c| c as char).collect()
 }
 
-/// Removes trailing zeros from an &[u8]
+/// Remove trailing zeros from an &[u8].
 pub fn truncate_zeros(mut s: &[u8]) -> &[u8] {
     while s.len() > 0 && s[s.len()-1] == 0 {
         s=s[..s.len()-1]
