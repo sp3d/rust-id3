@@ -44,7 +44,7 @@ impl FrameStream for FrameV4 {
             read_size -= 4;
         }
 
-        let mut data = vec![0; read_size as usize]; try!(reader.read(&mut *data));
+        let mut data = vec![0; read_size as usize]; read_all!(reader, &mut *data);
         frame.fields = try!(frame.parse_fields(&*data));
 
         Ok(Some((10 + content_size, frame)))

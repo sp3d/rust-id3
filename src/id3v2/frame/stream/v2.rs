@@ -12,10 +12,10 @@ impl FrameStream for FrameV2 {
 
         let mut frame = Frame::new(Id::V2(id));
 
-        let mut sizebytes = [0u8; 3]; try!(reader.read(&mut sizebytes));
+        let mut sizebytes = [0u8; 3]; read_all!(reader, &mut sizebytes);
         let read_size = ((sizebytes[0] as u32) << 16) | ((sizebytes[1] as u32) << 8) | sizebytes[2] as u32;
 
-        let mut data = vec![0; read_size as usize]; try!(reader.read(&mut *data));
+        let mut data = vec![0; read_size as usize]; read_all!(reader, &mut *data);
         frame.fields = try!(frame.parse_fields(&*data));
 
         Ok(Some((6 + read_size, frame)))

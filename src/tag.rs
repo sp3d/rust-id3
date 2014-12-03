@@ -9,7 +9,7 @@ use audiotag::{AudioTag, TagResult};
 
 use id3v1;
 use id3v2;
-use id3v2::frame::{Id, Frame, Encoding, PictureType};
+use id3v2::frame::Frame;
 use util;
 
 static DEFAULT_FILE_DISCARD: [&'static str; 11] = [
@@ -26,8 +26,6 @@ pub struct FileTags {
     pub v2: Option<id3v2::Tag>,
     /// The path, if any, that this file was loaded from.
     pub path: Option<PathBuf>,
-    /// Indicates if the path that we are writing to is not the same as the path we read from.
-    path_changed: bool,
 }
 
 impl FileTags
@@ -35,35 +33,39 @@ impl FileTags
     /// Create a FileTags structure from pre-parsed tags
     pub fn from_tags(v1: Option<id3v1::Tag>, v2: Option<id3v2::Tag>) -> FileTags
     {
-        FileTags {v1: v1, v2: v2, path: None, path_changed: false}
+        FileTags {v1: v1, v2: v2, path: None}
     }
+
+    /// Reads a FileTags from a reader that can be seeked.
     pub fn from_seekable<R: Read+Seek>(reader: &mut R) -> io::Result<FileTags> {
         let v2 = id3v2::read_tag(reader).ok();
         drop(reader.seek(SeekFrom::End(-id3v1::TAG_OFFSET)));
-        let mut v1=id3v1::read_tag(reader).ok();
+        let mut v1=id3v1::read_tag(reader).ok().unwrap_or(None);
         if let Some(ref mut v1) = v1 {
-            drop(reader.seek(SeekFrom::End(-id3v1::TAGPLUS_OFFSET)));
-            id3v1::read_xtag(reader, v1);
+            try!(reader.seek(SeekFrom::End(-id3v1::TAGPLUS_OFFSET)));
+            try!(id3v1::read_xtag(reader, v1));
         }
-        Ok(FileTags {v1: v1, v2: v2, path: None, path_changed: false})
+        Ok(FileTags {v1: v1, v2: v2, path: None})
     }
-}
 
-impl FileTags {
-    fn is_candidate(reader: &mut Read, _: Option<FileTags>) -> bool {
+    /// Returns whether a reader may have an ID3v2 tag at its current location.
+    /// Advances the reader by 3 bytes.
+    pub fn is_candidate(reader: &mut Read, _: Option<FileTags>) -> bool {
         let mut identifier = [0u8; 3];
         drop(reader.read(&mut identifier));
         identifier == *b"ID3"
     }
 
-    fn read_from<'a>(reader: &'a mut Read) -> TagResult<FileTags> {
-        //let v2 = id3v2::read_tag(reader).ok();
-        //let v1 = id3v1::read_tag(reader).ok();
-        //TODO(sp3d): implement this
-        Ok(FileTags {v1: None, v2: None, path: None, path_changed: false})
+    /// Reads a FileTags from a reader.
+    pub fn read_from<R: Read>(reader: &mut R) -> TagResult<FileTags> {
+        let v2 = id3v2::read_tag(reader).ok();
+        //TODO(sp3d): read the v1 tag from the right place
+        let v1 = id3v1::read_tag(reader).unwrap_or(None);
+        Ok(FileTags {v1: v1, v2: v2, path: None})
     }
 
-    fn write_to(&mut self, writer: &mut Write) -> TagResult<()> {
+    /// Write a FileTags to a writer. This does not presently place the v1 tag after the audio data.
+    pub fn write_to(&mut self, writer: &mut Write) -> TagResult<()> {
         // remove frames which have the flags indicating they should be removed 
         match self.v2 {
             Some(ref mut id3v2) => {
@@ -117,7 +119,8 @@ impl FileTags {
         Ok(())
     }
 
-    fn read_from_path(path: &Path) -> TagResult<FileTags> {
+    /// Reads a FileTags from a given file, saving the file's path in the instance.
+    pub fn read_from_path(path: &Path) -> TagResult<FileTags> {
         let mut file = try!(File::open(path));
         let mut tag = try!(FileTags::read_from(&mut file));
         tag.path=Some(path.to_owned());

@@ -15,6 +15,15 @@ macro_rules! maybe_read {
         }
     };
 }
+macro_rules! read_all {
+    ($reader:expr, $buf:expr) => {
+        {
+            use audiotag::{TagError, ErrorKind};
+            let len = try!($reader.read($buf));
+            if len < $buf.len() {return Err(TagError::new(ErrorKind::InvalidInputError, "unexpected end of stream"))} else {}
+        }
+    };
+}
 macro_rules! read_at_least {
     ($reader:expr, $buf:expr, $min_len:expr) => {
         {

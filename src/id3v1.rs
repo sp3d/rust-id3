@@ -1,5 +1,5 @@
-use std::io::{self, Read, Write, Seek, SeekFrom};
-use std::iter::IntoIterator;
+use std::io::{self, Read, Write};
+use audiotag::TagError;
 use num::Bounded;
 use std::fmt;
 
@@ -22,17 +22,17 @@ impl Fields {
     }
 }
 
-static LENGTHS: &'static [i8]=&[30, 30, 30, 4, 30, -1, 1];
+const LENGTHS: &'static [i8]=&[30, 30, 30, 4, 30, -1, 1];
 
-static TAG: &'static [u8] = b"TAG";
+const TAG: &'static [u8] = b"TAG";
 /// How far from the end of a file to probe for an ID3 tag signature.
-pub static TAG_OFFSET: i64 = 128;
+pub const TAG_OFFSET: i64 = 128;
 
-static TAGPLUS: &'static [u8] = b"TAG+";
+const TAGPLUS: &'static [u8] = b"TAG+";
 /// How far from the end of a file to probe for an extended ID3 tag signature.
-pub static TAGPLUS_OFFSET: i64 = 355;
+pub const TAGPLUS_OFFSET: i64 = 355;
 
-static XLENGTHS: &'static [i8]=&[60, 60, 60, 30, 6, 6];
+const XLENGTHS: &'static [i8]=&[60, 60, 60, 30, 6, 6];
 
 /// The fields in an extended ID3v1 tag.
 #[derive(Copy, Clone)]
@@ -296,7 +296,7 @@ fn parse_time(s: &[u8]) -> Time {
 }
 
 /// Read an ID3v1 tag from a reader.
-pub fn read_tag<R: Read>(reader: &mut R) -> Result<Tag, io::Error> {
+pub fn read_tag<R: Read>(reader: &mut R) -> Result<Option<Tag>, io::Error> {
     use self::Fields::*;
 
     let mut tag = Tag::new();
@@ -317,9 +317,12 @@ pub fn read_tag<R: Read>(reader: &mut R) -> Result<Tag, io::Error> {
             maybe_read!(reader, tag.comment, 1);
         }
         tag.genre=read_u8!(reader);
+        Ok(Some(tag))
     }
-
-    Ok(tag)
+    else
+    {
+        Ok(None)
+    }
 }
 
 /// Read the extended portion of an extended ID3v1 tag from a reader, combining its data with a previously-read ID3v1 tag.
@@ -354,14 +357,52 @@ pub fn truncate_zeros(mut s: &[u8]) -> &[u8] {
 /*pub fn read_seek<R: Read + Seek>(reader: &mut R) {
 }*/
 
+/// Read an ID3v1 and any extended tag data, if present, from a reader, combining its data with a previously-read ID3v1 tag.
+///
+/// The reader should start TAGPLUS_OFFSET bytes from the end of the file.
+pub fn read<R: Read>(reader: &mut R) -> Result<Option<Tag>, TagError> {
+    let mut tagplus_buf = [0u8; TAGPLUS_OFFSET as usize];
+    read_all!(reader, &mut tagplus_buf);
+
+    let mut tag = try!(read_tag(reader));
+    if let Some(ref mut tag) = tag {
+        try!(read_xtag(reader, tag));
+    }
+    Ok(tag)
+}
+
 #[test]
 fn smoke_test() {
+    use std::io::{Seek, SeekFrom};
     use std::path::Path;
-    let mut f=::std::fs::File::open(&Path::new("test.mp3")).ok().expect("could not open `test.mp3`");
+    let mut f=::std::fs::File::open(&Path::new("id3v1.mp3")).ok().expect("could not open `id3v1.mp3`");
     f.seek(SeekFrom::End(-TAG_OFFSET));
-    let mut tag=read_tag(&mut f).unwrap();
+    let mut tag=read_tag(&mut f).ok().expect("error reading tag").expect("no tag in file");
     println!("{:?}", tag);
     f.seek(SeekFrom::End(-TAGPLUS_OFFSET));
     read_xtag(&mut f, &mut tag);
     println!("{:?}", tag);
+}
+
+#[test]
+fn test_read() {
+    let buf_notag = [b'x'; TAG_OFFSET as usize];
+    let buf_headeronly = [b'T', b'A', b'G'];
+    let buf_toosmall = [b'T', b'A', b'G', 0, 4, 36];
+
+    let mut tag_notag = read_tag(&mut &buf_notag[..]);
+    assert!(tag_notag.is_ok());
+    assert!(tag_notag.unwrap().is_none());
+
+    let mut tag_headeronly = read_tag(&mut &buf_headeronly[..]);
+    assert!(tag_headeronly.is_ok());
+    assert!(tag_headeronly.unwrap().is_some());
+
+    let mut tag_toosmall = read_tag(&mut &buf_toosmall[..]);
+    assert!(tag_toosmall.is_err());
+
+/*    println!("{:?}", tag);
+    f.seek(SeekFrom::End(-TAGPLUS_OFFSET));
+    read_xtag(&mut f, &mut tag);
+    println!("{:?}", tag);*/
 }

@@ -179,6 +179,8 @@ pub enum Field {
 impl Field {
     /// Write the field to the given writer. If @unsync is true, any byte patterns
     /// of the form "%11111111 111xxxxx" are written as "%11111111 00000000 111xxxxx".
+    /// Can only fail due to errors originating in the writer itself, rather than 
+    /// serialization.
     pub fn serialize<W: Write>(&self, writer: &mut W, encoding: Option<Encoding>, is_last: bool, unsync: bool) -> io::Result<()> {
         use self::Field::*;
         //TODO(sp3d): support unsync!

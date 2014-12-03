@@ -18,7 +18,6 @@ macro_rules! id_or_padding {
             buf
         }
     };
-
 }
 
 /// A trait for reading and writing frames.

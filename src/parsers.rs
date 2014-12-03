@@ -1,5 +1,5 @@
 use audiotag::{TagError, TagResult};
-use audiotag::ErrorKind::{InvalidInputError, StringDecodingError, UnsupportedFeatureError};
+use audiotag::ErrorKind::{InvalidInputError, /*StringDecodingError, UnsupportedFeatureError*/};
 
 use id3v2::frame::field::Field;
 use id3v2::frame::{self, Frame, Id, Encoding};
@@ -33,7 +33,8 @@ pub fn encode(request: EncoderRequest) -> Vec<u8> {
         None => 0 as *const _,
     };
     for i in request.fields.iter() {
-        i.serialize(&mut encoded, request.encoding(), i as *const _ == last, false/*unsync*/);
+        //Field::serialize only fails if the writer fails to write, and a vec won't, so we can drop()
+        drop(i.serialize(&mut encoded, request.encoding(), i as *const _ == last, false/*unsync*/));
     }
     encoded
 }

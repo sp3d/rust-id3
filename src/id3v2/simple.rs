@@ -34,8 +34,8 @@ pub struct ExtendedLink {
     pub link: String
 }
 
-/// A structure representing an ID3 picture frame's contents.
 #[derive(Debug, Clone, PartialEq)]
+/// A structure representing an ID3 picture frame's contents.
 pub struct Picture {
     /// The picture's MIME type.
     pub mime_type: String,

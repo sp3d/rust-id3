@@ -1,8 +1,6 @@
-#![feature(globs, phase)]
-
 extern crate id3;
 
-use id3::{AudioTag, id3v2};
+use id3::id3v2;
 use id3::tag::FileTags;
 use id3::id3v2::Version::*;
 use id3::id3v2::frame::{Frame, Id, Encoding};

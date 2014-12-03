@@ -12,7 +12,7 @@ pub mod frame;
 /// High-level, lossy, and simple accessors for basic tag content.
 pub mod simple;
 
-/// An ID3v2 tag containing metadata frames. 
+/// An ID3v2 tag containing metadata frames.
 #[derive(Debug)]
 pub struct Tag {
     /// The version of the tag. The first byte represents the major version number, while the
@@ -38,71 +38,233 @@ pub enum ExtendedFlag {
     /// Indicates that this ID3v2 tag is an update to an earlier tag in the stream, as
     /// might occur in streaming media playback to override the previous track's title
     /// and other metadata. This flag has no payload (ID3v2.4).
-    Update = 16,
+    Update,
     /// Indicates the presence of a payload containing a CRC32 checksum of the frame
     /// data (before unsynchronization) between the extended header and the padding
     /// (ID3v2.3 or ID3v2.4).
-    Crc = 32,
+    Crc,
     /// Indicates a 1-byte payload specifying restrictions to be placed on the tag,
     /// such as total tag size, text encodings, string lengths, image formats, and
     /// image dimensions (ID3v2.4).
-    TagRestrictions = 64,
+    TagRestrictions,
     /// An unknown extended header entry. To comply with the ID3v2.4 spec, unknown
     /// extended header data MUST be removed when the tag is modified. The payload
     /// may be any size.
-    Unknown//(u8),//TODO(sp3d): preserve flag index!
+    Unknown(u8),//TODO(sp3d): preserve flag index!
 }
 
+impl ExtendedFlag
+{
+    /// Find the index of an extended header flag in a tag of the given ID3v2 version,
+    /// counting from 0 at the first byte's MSB.
+    pub fn to_index(&self, version: Version) -> u8
+    {
+        match (version, self)
+        {
+            (Version::V3, &ExtendedFlag::Crc) => 0,
+            (Version::V3, &ExtendedFlag::Unknown(n)) => n,
+            (Version::V4, &ExtendedFlag::Update) => 1,
+            (Version::V4, &ExtendedFlag::Crc) => 2,
+            (Version::V4, &ExtendedFlag::TagRestrictions) => 3,
+            (Version::V4, &ExtendedFlag::Unknown(n)) => n,
+            _ => panic!("extended header flag incompatible with ID3v2 version"),
+        }
+    }
+    /// Obtain the meaning of an ID3v2 extended header flag from the index of its
+    /// bit in the flag bytes, counting from 0 at the first byte's MSB.
+    pub fn from_index(n: u8, version: Version) -> ExtendedFlag
+    {
+        match (version, n)
+        {
+            (Version::V3, 0) => ExtendedFlag::Crc,
+            (Version::V3, n) => ExtendedFlag::Unknown(n),
+            (Version::V4, 1) => ExtendedFlag::Update,
+            (Version::V4, 2) => ExtendedFlag::Crc,
+            (Version::V4, 3) => ExtendedFlag::TagRestrictions,
+            (Version::V4, n) => ExtendedFlag::Unknown(n),
+            _ => panic!("extended header flag incompatible with ID3v2 version"),
+        }
+    }
+}
+
+
+/// An iterator adaptor that groups iterator elements. Consecutive elements
+/// that map to the same key ("runs"), are succesively passed to the folding closure.
+///
+/// See [*.group_by()*](trait.Itertools.html#method.group_by) for more information.
+pub struct GroupBy<I, FK, K, FV, V> where
+    I: Iterator,
+    FK: FnMut(&I::Item) -> K,
+    FV: FnMut(::std::iter::TakeWhile<&mut ::std::iter::Peekable<I>, &mut FnMut(&I::Item) -> bool>) -> V,
+{
+    key: FK,
+    fold: FV,
+    iter: ::std::iter::Peekable<I>,
+}
+
+impl<I, FK, K, FV, V> GroupBy<I, FK, K, FV, V> where
+    I: Iterator,
+    FK: FnMut(&I::Item) -> K,
+    FV: FnMut(::std::iter::TakeWhile<&mut ::std::iter::Peekable<I>, &mut FnMut(&I::Item) -> bool>) -> V,
+{
+    /// Create a new `GroupBy` iterator.
+    pub fn new(iter: I, key: FK, fold: FV) -> Self
+    {
+        GroupBy{key: key, fold: fold, iter: iter.peekable(), }
+    }
+}
+
+impl<K, I, FK, FV, V> Iterator for GroupBy<I, FK, K, FV, V> where
+    K: PartialEq,
+    I: Iterator,
+    FK: FnMut(&I::Item) -> K,
+    FV: FnMut(::std::iter::TakeWhile<&mut ::std::iter::Peekable<I>, &mut FnMut(&I::Item) -> bool>) -> V,
+{
+    type Item = V;
+    fn next(&mut self) -> Option<V>
+    {
+        let some = self.iter.peek().is_some();
+        if some
+        {
+            let key = (self.key)(self.iter.peek().unwrap());
+            let mut ffold = &mut self.fold;
+            let fkey = &mut self.key;
+            let mut iter = &mut self.iter;
+            let v=(ffold)(iter.take_while(&mut |x| (fkey)(x)==key ));
+            Some(v)
+        }
+        else
+        {
+            None
+        }
+    }
+
+/*    fn size_hint(&self) -> (usize, Option<usize>)
+    {
+        let stored_count = self.current_key.is_some() as usize;
+        let mut sh = size_hint::add_scalar(self.iter.size_hint(),
+                                           stored_count);
+        if sh.0 > 0 {
+            sh.0 = 1;
+        }
+        sh
+    }*/
+}
+
+
+/*
+pub struct GroupBy<>
+{
+    iter: I,
+    callback: F,
+    group: P
+}
+fn group_by<K: PartialEq, T, I: Iterator<Item=T>>(x: I, compare:  -> bool each: ) -> GroupBy<>
+{
+}
+impl<T, V, I: Iterator<Item=T>, F: Fn(I) -> V> Iterator for GroupBy<I, T>
+{
+    type Item = V;
+    fn next(&mut self)
+    {
+        self.iter.take_while()
+    }
+}
+*/
+
+
 /// An ID3v2 extended header, which consists of a series of flags and
-/// corresponding data payloads. 
+/// corresponding data payloads.
 #[derive(Debug)]
 pub struct ExtendedHeader {
     flag_data: Vec<(ExtendedFlag, Vec<u8>)>
 }
 
 impl ExtendedHeader {
-    fn size(&self) -> usize {
+    /// Return the size in bytes of the serialized extended header.
+    pub fn size(&self) -> usize {
         let flag_data_len: usize=self.flag_data.iter().map(|&(_, ref vec)| vec.len()).sum();
         4/*size field*/+1/*bytes of flags*/+flag_data_len
     }
-    fn serialize<W: Write>(&self, writer: &mut W) -> io::Result<()> {
+    /// Write the extended header to a writer.
+    pub fn serialize<W: Write>(&self, writer: &mut W, version: Version) -> io::Result<()> {
         let size = self.size() as u32;
-        //TODO: verify endianness
+        //TODO: verify endianness?
         try!(writer.write(&util::u32_to_bytes(util::synchsafe(size))));
-        try!(writer.write(&[1u8]));
+        match version
+        {
+            Version::V2 => panic!("attempting to serialize extended header for an ID3v2.2 tag"),
+            Version::V3 => try!(writer.write(&[1u8])),
+            Version::V4 => try!(writer.write(&[42u8])),//TODO(sp3d): try!(writer.write(n_flag_bytes)),
+        };
+        //TODO(sp3d): write flag bytes
+        //write flag payloads
         for &(_, ref vec) in self.flag_data.iter() {
+            try!(writer.write(&[vec.len() as u8]));
             try!(writer.write(&*vec));
         }
         Ok(())
     }
-    fn parse<R: Read>(reader: &mut R, offset: /*Option<*/&mut usize/*>*/) -> io::Result<ExtendedHeader> {
+    /// Parse an ID3v2 extended header for a tag with the given ID3v2 version from a reader.
+    /// The version must be Version::V3 or Version::V4.
+    pub fn parse<R: Read>(reader: &mut R, version: Version) -> io::Result<(ExtendedHeader, usize)> {
+        let mut offset = 0;
         let size = util::unsynchsafe(read_be_u32!(reader));
-        *offset += 4;
-        let n_flag_bytes = read_u8!(reader);
-        *offset += 1;
-        
-        let mut n_unknown_flags = 0;
-        //read each flag byte
-        //let mut flags = vec![];
-        for i in 0..n_flag_bytes {
+        offset += 4;
+
+        //figure out how many bytes of flags to read
+        let n_flag_bytes = match version
+        {
+            Version::V2 => panic!("attempting to parse extended header for an ID3v2.2 tag"),
+            Version::V3 => 2,
+            Version::V4 => {
+                offset += 1;
+                read_u8!(reader)
+            }
+        };
+
+        //read the flags themselves
+        let mut flags = vec![];
+        let mut bit_index = 0;
+        for _ in 0..n_flag_bytes
+        {
             let flag_byte = read_u8!(reader);
-            *offset += 1;
-            if i == 0 {
-                //flags.push_all(&[])
-            } else {
-                n_unknown_flags += flag_byte.count_ones();
-                //flag byte unknown
+            offset += 1;
+
+            for bit in 0..8//flag_byte.one_bits_from_msb()
+            {
+                let bit = (flag_byte>>(7-bit)) & 1;
+                if bit == 1
+                {
+                    flags.push(ExtendedFlag::from_index(bit_index, version));
+                }
+                bit_index += 1;
             }
         }
         let mut flag_data=vec![];
         let mut size_remaining = size;
-        
-        //TODO(sp3d): what is going on here?
-        let mut ext_header = vec![0; size as usize]; try!(reader.read(&mut ext_header));
-        ext_header;
-        *offset += size as usize;
 
-        Ok(ExtendedHeader { flag_data: flag_data })
+        //read the payload, in (data_size, data) format, for each flag
+        for flag in flags
+        {
+            let data_size = read_u8!(reader) as u32;
+            offset += 1;
+
+            if size_remaining < data_size
+            {
+                //TODO(sp3d): return error
+                //return Err("ran out of data before running out of flags");
+                panic!("ran out of data before running out of flags");
+            }
+
+            let mut flag_datum = vec![0; data_size as usize]; try!(reader.read(&mut flag_datum)); //read_all!(reader, &mut ext_header);
+            flag_data.push((flag, flag_datum));
+
+            size_remaining -= data_size;
+            offset += data_size as usize;
+        }
+
+        Ok((ExtendedHeader { flag_data: flag_data }, offset))
     }
 }
 
@@ -273,7 +435,7 @@ impl Version {
 
     /// Returns the encodings compatible with the frame's version.
     #[inline]
-    fn compatible_encodings(&self) -> &[Encoding] {
+    pub fn compatible_encodings(&self) -> &[Encoding] {
         match *self {
             Version::V2|Version::V3 => static_arr!(Encoding, [Encoding::Latin1, Encoding::UTF16]),
             Version::V4 => static_arr!(Encoding, [Encoding::Latin1, Encoding::UTF16, Encoding::UTF16BE, Encoding::UTF8]),
@@ -340,7 +502,9 @@ pub fn read_tag<R: Read>(mut reader: &mut R) -> TagResult<Tag> {
 
     // TODO actually use the extended header data
     if tag.flags.get(ExtendedHeader) {
-        tag.extended_header = Some(try!(self::ExtendedHeader::parse(&mut reader, &mut offset)));
+        let (eh, eh_size) = try!(self::ExtendedHeader::parse(&mut reader, tag.version));
+        tag.extended_header = Some(eh);
+        offset += eh_size;
     }
 
     while offset < tag.size as usize + 10 {
@@ -369,7 +533,7 @@ pub fn read_tag<R: Read>(mut reader: &mut R) -> TagResult<Tag> {
 
 // Tag {{{
 impl Tag {
-    /// Create a new ID3v2.4 tag with no frames. 
+    /// Create a new ID3v2.4 tag with no frames.
     #[inline]
     pub fn new() -> Tag {
         Tag {
@@ -638,17 +802,17 @@ impl Tag {
     /// let mut tag = id3v2::Tag::new();
     ///
     /// let mut frame = Frame::new("TXXX");
-    /// frame.fields = ExtendedTextContent(frame::ExtendedText { 
+    /// frame.fields = ExtendedTextContent(frame::ExtendedText {
     ///     key: "key1".to_owned(),
     ///     value: "value1".to_owned()
     /// });
     /// tag.add_frame(frame);
     ///
     /// let mut frame = Frame::new("TXXX");
-    /// frame.fields = ExtendedTextContent(frame::ExtendedText { 
+    /// frame.fields = ExtendedTextContent(frame::ExtendedText {
     ///     key: "key2".to_owned(),
     ///     value: "value2".to_owned()
-    /// }); 
+    /// });
     /// tag.add_frame(frame);
     ///
     /// assert_eq!(tag.txxx().len(), 2);
@@ -656,12 +820,15 @@ impl Tag {
     /// assert!(tag.txxx().contains(&("key2".to_owned(), "value2".to_owned())));
     /// ```
     pub fn txxx(&self) -> Vec<(String, String)> {
+        //use std::collections::string::String;
         let mut out = Vec::new();
         for frame in self.get_frames_by_id(self.version().txxx_id()).iter() {
-            match &frame.fields {
-                //TODO(sp3d): rebuild this on top of fields
-                //ExtendedTextContent(ref ext) => out.push((ext.key.clone(), ext.value.clone())),
-                _ => { }
+            match &*frame.fields {
+                [Field::TextEncoding(_encoding), Field::String(ref k), Field::String(ref v)] => {
+                    //TODO(sp3d): convert encoding?
+                    out.push((String::from_utf8(k.clone()).unwrap(), String::from_utf8(v.clone()).unwrap()));
+                },
+                _ => {},
             }
         }
 
@@ -715,17 +882,17 @@ impl Tag {
         let mut frame = Frame::new(self.version().txxx_id());
         frame.set_encoding(encoding);
         //TODO(sp3d): rebuild this on top of fields
-        /*frame.fields = ExtendedTextContent(frame::ExtendedText { 
-            key: key, 
-            value: value.to_owned() 
+        /*frame.fields = ExtendedTextContent(frame::ExtendedText {
+            key: key,
+            value: value.to_owned()
         });*/
-        
+
         self.frames.push(frame);
     }
 
     /// Removes the user defined text frame (TXXX) with the specified key and value.
     /// A key or value may be `None` to specify a wildcard value.
-    /// 
+    ///
     /// # Example
     /// ```
     /// use id3::id3v2;
@@ -794,7 +961,7 @@ impl Tag {
     /// use id3::Content::PictureContent;
     ///
     /// let mut tag = id3v2::Tag::new();
-    /// 
+    ///
     /// let mut frame = Frame::new("APIC");
     /// frame.fields = PictureContent(Picture::new());
     /// tag.add_frame(frame);
@@ -858,11 +1025,11 @@ impl Tag {
         let mut frame = Frame::new(self.version().picture_id());
 
         frame.set_encoding(encoding);
-        frame.fields = PictureContent(Picture { 
-            mime_type: mime_type.to_owned(), 
-            picture_type: picture_type, 
-            description: description.to_owned(), 
-            data: data 
+        frame.fields = PictureContent(Picture {
+            mime_type: mime_type.to_owned(),
+            picture_type: picture_type,
+            description: description.to_owned(),
+            data: data
         });
 
         self.frames.push(frame);
@@ -930,7 +1097,7 @@ impl Tag {
     /// tag.add_frame(frame);
     ///
     /// let mut frame = Frame::new("COMM");
-    /// frame.fields = CommentContent(frame::Comment { 
+    /// frame.fields = CommentContent(frame::Comment {
     ///     lang: "eng".to_owned(),
     ///     description: "key2".to_owned(),
     ///     text: "value2".to_owned()
@@ -946,7 +1113,7 @@ impl Tag {
         for frame in self.get_frames_by_id(self.version().comment_id()).iter() {
             match &frame.fields {
                 //TODO(sp3d): rebuild this on top of fields
-                /*CommentContent(ref comment) => out.push((comment.description.clone(), 
+                /*CommentContent(ref comment) => out.push((comment.description.clone(),
                                                          comment.text.clone())),*/
                 _ => { }
             }
@@ -954,7 +1121,7 @@ impl Tag {
 
         out
     }
- 
+
     /// Adds a user comment frame (COMM).
     ///
     /// # Example
@@ -1001,18 +1168,18 @@ impl Tag {
 
         //TODO(sp3d): rebuild this on top of fields
         /*frame.set_encoding(encoding);
-        frame.fields = CommentContent(frame::Comment { 
-            lang: lang.to_owned(), 
-            description: description, 
-            text: text.to_owned() 
+        frame.fields = CommentContent(frame::Comment {
+            lang: lang.to_owned(),
+            description: description,
+            text: text.to_owned()
         });*/
-       
+
         self.frames.push(frame);
     }
 
     /// Removes the user comment frame (COMM) with the specified key and value.
     /// A key or value may be `None` to specify a wildcard value.
-    /// 
+    ///
     /// # Example
     /// ```
     /// use id3::id3v2;
@@ -1058,7 +1225,7 @@ impl Tag {
 
                         match text {
                             Some(s) => text_match = s == &comment.text,
-                            None => text_match = true 
+                            None => text_match = true,
                         }
                     },*/
                     _ => { // remove frames that we can't parse
@@ -1339,12 +1506,12 @@ impl Tag {
 
         frame.set_encoding(encoding);
         //TODO(sp3d): rebuild this on top of fields
-        /*frame.fields = LyricsContent(frame::Lyrics { 
-            lang: lang.to_owned(), 
-            description: description.to_owned(), 
-            text: text.to_owned() 
+        /*frame.fields = LyricsContent(frame::Lyrics {
+            lang: lang.to_owned(),
+            description: description.to_owned(),
+            text: text.to_owned()
         });*/
-        
+
         self.frames.push(frame);
     }
     //}}}
