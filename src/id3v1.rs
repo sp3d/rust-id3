@@ -214,29 +214,6 @@ impl Tag {
     }
 }
 
-/// ID3v1 tag reading helpers.
-trait ID3v1Helpers {
-    /// Read `n` bytes starting at an offset from the end.
-    fn read_from_end(&mut self, n:usize, offset:i64) -> Result<Vec<u8>, io::Error>;
-
-    /// Read a null-terminated ISO-8859-1 string of size at most `n`, at an offset from the end.
-    fn read_str(&mut self, n: usize, offset: i64) -> Result<String, io::Error>;
-}
-
-impl<R: Read + Seek> ID3v1Helpers for R {
-    #[inline]
-    fn read_from_end(&mut self, n: usize, offset:i64) -> Result<Vec<u8>, io::Error> {
-        try!(self.seek(SeekFrom::End(-offset)));
-        let mut v=Vec::with_capacity(n);
-        self.read(&mut v).and(Ok(v))
-    }
-
-    #[inline]
-    fn read_str(&mut self, n: usize, offset: i64) -> Result<String, io::Error> {
-        self.read_from_end(n, offset).map(|vec| extract_nz_88591(vec))
-    }
-}
-
 /// Checks for presence of the signature indicating an ID3v1 tag at the reader's current offset.
 /// Consumes 3 bytes from the reader.
 #[inline]
@@ -364,19 +341,6 @@ pub fn read_xtag<R: Read>(reader: &mut R, tag: &mut Tag) -> Result<(), io::Error
         tag.end_time=parse_time(&*end_str);
     }
     Ok(())
-}
-
-/// Read a string from a null-terminated ISO-8859-1 byte vector.
-///
-/// Read the whole vector if there is no null byte.
-///
-/// This function cannot fail, because UTF-8 is compatible with ISO-8859-1
-/// at the code point level.
-#[inline]
-fn extract_nz_88591(s: Vec<u8>) -> String {
-    // This works because the ISO 8859-1 code points match the unicode code
-    // points. So,`c as char` will map correctly from ISO to unicode.
-    s.into_iter().take_while(|&c| c!=0).map(|c| c as char).collect()
 }
 
 /// Remove trailing zeros from an &[u8].
