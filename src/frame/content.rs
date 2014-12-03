@@ -4,6 +4,7 @@ use self::Content::{
 };
 
 /// The decoded contents of a frame.
+#[deriving(Show, Clone, PartialEq)]
 pub enum Content {
     /// A value containing the parsed contents of a text frame.
     TextContent(String),

@@ -32,6 +32,15 @@ pub struct FileTags {
     remove_v1: bool
 }
 
+impl FileTags
+{
+    /// Create a FileTags structure from pre-parsed tags
+    pub fn from_tags(v1: Option<id3v1::Tag>, v2: Option<id3v2::Tag>) -> FileTags
+    {
+        FileTags {v1: v1, v2: v2, path: None, path_changed: false, remove_v1: false}
+    }
+}
+
 impl AudioTag for FileTags {
     // Reading/Writing {{{
     fn skip_metadata<R: Reader + Seek>(reader: &mut R, _: Option<FileTags>) -> Vec<u8> {
@@ -84,8 +93,8 @@ impl AudioTag for FileTags {
 
         let identifier = try!(reader.read_exact(3));
         if identifier.as_slice() != b"ID3" {
-            debug!("no id3 tag found");
-            return Err(TagError::new(InvalidInputError, "buffer does not contain an id3 tag"))
+            debug!("no ID3 tag found");
+            return Err(TagError::new(InvalidInputError, "buffer does not contain an ID3 tag"))
         }
 
         let mut version_bytes = [0u8, ..2];
@@ -97,7 +106,7 @@ impl AudioTag for FileTags {
             [2, 0] => id3v2::SupportedVersion::V2_2,
             [3, 0] => id3v2::SupportedVersion::V2_3,
             [4, 0] => id3v2::SupportedVersion::V2_4,
-            _ => return Err(TagError::new(InvalidInputError, "unsupported id3 tag version")),
+            _ => return Err(TagError::new(InvalidInputError, "unsupported ID3 tag version")),
         };
 
         tag.flags = id3v2::TagFlags::from_byte(try!(reader.read_byte()), tag.version().to_bytes()[0]);
@@ -106,8 +115,8 @@ impl AudioTag for FileTags {
             debug!("unsynchronization is unsupported");
             return Err(TagError::new(UnsupportedFeatureError, "unsynchronization is not supported"))
         } else if tag.flags.compression {
-            debug!("id3v2.2 compression is unsupported");
-            return Err(TagError::new(UnsupportedFeatureError, "id3v2.2 compression is not supported"));
+            debug!("ID3v2.2 compression is unsupported");
+            return Err(TagError::new(UnsupportedFeatureError, "ID3v2.2 compression is not supported"));
         }
 
         tag.size = util::unsynchsafe(try!(reader.read_be_u32()));
@@ -545,7 +554,7 @@ impl AudioTag for FileTags {
 // Tests {{{
 #[cfg(test)]
 mod tests {
-    use tag::TagFlags;
+    use id3v2::TagFlags;
 
     #[test]
     fn test_flags_to_bytes() {

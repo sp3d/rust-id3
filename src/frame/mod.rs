@@ -61,6 +61,7 @@ pub struct ExtendedLink {
 }
 
 /// A structure representing an ID3 frame.
+#[deriving(Show)]
 pub struct Frame {
     /// A sequence of 16 bytes used to uniquely identify this frame. 
     pub uuid: Vec<u8>,

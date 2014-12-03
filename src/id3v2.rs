@@ -1,7 +1,9 @@
 use std::cmp::min;
 use frame::{mod, Frame, Encoding, Picture, PictureType};
 use frame::Content::{PictureContent, CommentContent, TextContent, ExtendedTextContent, LyricsContent};
+
 /// An ID3 tag containing metadata frames. 
+#[deriving(Show)]
 pub struct Tag {
     /// The version of the tag. The first byte represents the major version number, while the
     /// second byte represents the revision number.
@@ -19,6 +21,7 @@ pub struct Tag {
 }
 
 /// Flags used in the ID3v2 header.
+#[deriving(Show)]
 pub struct TagFlags {
     /// Indicates whether or not unsynchronization is used.
     pub unsynchronization: bool,
@@ -206,7 +209,7 @@ impl Tag {
     /// # Example
     /// ```
     /// use id3::id3v2;
-    /// use id3::id3v2::SupportedVersion::*;
+    /// use id3::id3v2::SupportedVersion::{V2_3, V2_4};
     ///
     /// let mut tag = id3v2::Tag::with_version(V2_4);
     /// assert_eq!(tag.version(), V2_4);
@@ -241,12 +244,13 @@ impl Tag {
     /// # Example
     /// ```
     /// use id3::id3v2;
+    /// use id3::id3v2::SupportedVersion::{V2_3, V2_4};
     /// use id3::Encoding::{UTF16, UTF8};
     ///
-    /// let mut tag_v3 = id3v2::Tag::with_version(3);
+    /// let mut tag_v3 = id3v2::Tag::with_version(V2_3);
     /// assert_eq!(tag_v3.default_encoding(), UTF16);
     ///
-    /// let mut tag_v4 = id3v2::Tag::with_version(4);
+    /// let mut tag_v4 = id3v2::Tag::with_version(V2_4);
     /// assert_eq!(tag_v4.default_encoding(), UTF8);
     /// ```
     #[inline]
@@ -262,7 +266,8 @@ impl Tag {
     ///
     /// # Example
     /// ```
-    /// use id3::{id3v2, id3v2::Frame};
+    /// use id3::id3v2;
+    /// use id3::frame::Frame;
     ///
     /// let mut tag = id3v2::Tag::new();
     ///
@@ -280,7 +285,8 @@ impl Tag {
     ///
     /// # Example
     /// ```
-    /// use id3::{id3v2, id3v2::Frame};
+    /// use id3::id3v2;
+    /// use id3::frame::Frame;
     ///
     /// let mut tag = id3v2::Tag::new();
     ///
@@ -303,7 +309,8 @@ impl Tag {
     ///
     /// # Example
     /// ```
-    /// use id3::{id3v2, id3v2::Frame};
+    /// use id3::id3v2;
+    /// use id3::frame::Frame;
     ///
     /// let mut tag = id3v2::Tag::new();
     ///
@@ -334,7 +341,8 @@ impl Tag {
     ///
     /// # Example
     /// ```
-    /// use id3::{id3v2, id3v2::Frame};
+    /// use id3::id3v2;
+    /// use id3::frame::Frame;
     ///
     /// let mut tag = id3v2::Tag::new();
     /// tag.add_frame(Frame::new("TALB"));
@@ -393,7 +401,8 @@ impl Tag {
     /// 
     /// # Example
     /// ```
-    /// use id3::{id3v2, id3v2::Frame};
+    /// use id3::id3v2;
+    /// use id3::frame::Frame;
     ///
     /// let mut tag = id3v2::Tag::new();
     ///
@@ -424,7 +433,8 @@ impl Tag {
     ///
     /// # Example
     /// ```
-    /// use id3::{id3v2, id3v2::Frame};
+    /// use id3::id3v2;
+    /// use id3::frame::Frame;
     ///
     /// let mut tag = id3v2::Tag::new();
     ///
@@ -474,7 +484,8 @@ impl Tag {
     ///
     /// # Example
     /// ```
-    /// use id3::{id3v2, id3v2::Frame};
+    /// use id3::id3v2;
+    /// use id3::frame::Frame;
     /// use id3::frame;
     /// use id3::Content::ExtendedTextContent;
     ///
@@ -632,7 +643,8 @@ impl Tag {
     ///
     /// # Example
     /// ```
-    /// use id3::{id3v2, id3v2::Frame};
+    /// use id3::id3v2;
+    /// use id3::frame::Frame;
     /// use id3::frame::Picture;
     /// use id3::Content::PictureContent;
     ///
@@ -753,7 +765,8 @@ impl Tag {
     ///
     /// # Example
     /// ```
-    /// use id3::{id3v2, id3v2::Frame};
+    /// use id3::id3v2;
+    /// use id3::frame::Frame;
     /// use id3::frame;
     /// use id3::Content::CommentContent;
     ///
@@ -918,9 +931,10 @@ impl Tag {
     /// ```
     /// use id3::{AudioTag, id3v2};
     /// use id3::Encoding::UTF16;
+    /// use id3::tag::FileTags;
     ///
-    /// let mut tag = id3v2::Tag::new();
-    /// tag.set_artist_enc("artist", UTF16);
+    /// let mut tag = FileTags::from_tags(None, Some(id3v2::Tag::new()));
+    /// tag.v2.as_mut().unwrap().set_artist_enc("artist", UTF16);
     /// assert_eq!(tag.artist().unwrap().as_slice(), "artist");
     /// ```
     #[inline]
@@ -935,9 +949,10 @@ impl Tag {
     /// ```
     /// use id3::{AudioTag, id3v2};
     /// use id3::Encoding::UTF16;
+    /// use id3::tag::FileTags;
     ///
-    /// let mut tag = id3v2::Tag::new();
-    /// tag.set_album_artist_enc("album artist", UTF16);
+    /// let mut tag = FileTags::from_tags(None, Some(id3v2::Tag::new()));
+    /// tag.v2.as_mut().unwrap().set_album_artist_enc("album artist", UTF16);
     /// assert_eq!(tag.album_artist().unwrap().as_slice(), "album artist");
     /// ```
     #[inline]
@@ -953,9 +968,10 @@ impl Tag {
     /// ```
     /// use id3::{AudioTag, id3v2};
     /// use id3::Encoding::UTF16;
+    /// use id3::tag::FileTags;
     ///
-    /// let mut tag = id3v2::Tag::new();
-    /// tag.set_album_enc("album", UTF16);
+    /// let mut tag = FileTags::from_tags(None, Some(id3v2::Tag::new()));
+    /// tag.v2.as_mut().unwrap().set_album_enc("album", UTF16);
     /// assert_eq!(tag.album().unwrap().as_slice(), "album");
     /// ```
     #[inline]
@@ -970,9 +986,10 @@ impl Tag {
     /// ```
     /// use id3::{AudioTag, id3v2};
     /// use id3::Encoding::UTF16;
+    /// use id3::tag::FileTags;
     ///
-    /// let mut tag = id3v2::Tag::new();
-    /// tag.set_title_enc("title", UTF16);
+    /// let mut tag = FileTags::from_tags(None, Some(id3v2::Tag::new()));
+    /// tag.v2.as_mut().unwrap().set_title_enc("title", UTF16);
     /// assert_eq!(tag.title().unwrap().as_slice(), "title");
     /// ```
     #[inline]
@@ -988,9 +1005,10 @@ impl Tag {
     /// ```
     /// use id3::{AudioTag, id3v2};
     /// use id3::Encoding::UTF16;
+    /// use id3::tag::FileTags;
     ///
-    /// let mut tag = id3v2::Tag::new();
-    /// tag.set_genre_enc("genre", UTF16);
+    /// let mut tag = FileTags::from_tags(None, Some(id3v2::Tag::new()));
+    /// tag.v2.as_mut().unwrap().set_genre_enc("genre", UTF16);
     /// assert_eq!(tag.genre().unwrap().as_slice(), "genre");
     /// ```
     #[inline]
@@ -1004,7 +1022,8 @@ impl Tag {
     ///
     /// # Example
     /// ```
-    /// use id3::{id3v2, id3v2::Frame};
+    /// use id3::id3v2;
+    /// use id3::frame::Frame;
     /// use id3::Content::TextContent;
     ///
     /// let mut tag = id3v2::Tag::new();
@@ -1103,9 +1122,10 @@ impl Tag {
     /// ```
     /// use id3::{AudioTag, id3v2};
     /// use id3::Encoding::UTF16;
+    /// use id3::tag::FileTags;
     ///
-    /// let mut tag = id3v2::Tag::new();
-    /// tag.set_track_enc(5, UTF16);
+    /// let mut tag = FileTags::from_tags(None, Some(id3v2::Tag::new()));
+    /// tag.v2.as_mut().unwrap().set_track_enc(5, UTF16);
     /// assert_eq!(tag.track().unwrap(), 5);
     /// ```
     pub fn set_track_enc(&mut self, track: u32, encoding: Encoding) {
@@ -1125,9 +1145,10 @@ impl Tag {
     /// ```
     /// use id3::{AudioTag, id3v2};
     /// use id3::Encoding::UTF16;
+    /// use id3::tag::FileTags;
     ///
-    /// let mut tag = id3v2::Tag::new();
-    /// tag.set_total_tracks_enc(12, UTF16);
+    /// let mut tag = FileTags::from_tags(None, Some(id3v2::Tag::new()));
+    /// tag.v2.as_mut().unwrap().set_total_tracks_enc(12, UTF16);
     /// assert_eq!(tag.total_tracks().unwrap(), 12);
     /// ```
     pub fn set_total_tracks_enc(&mut self, total_tracks: u32, encoding: Encoding) {
@@ -1147,9 +1168,10 @@ impl Tag {
     /// ```
     /// use id3::{AudioTag, id3v2};
     /// use id3::Encoding::UTF16;
+    /// use id3::tag::FileTags;
     ///
-    /// let mut tag = id3v2::Tag::new();
-    /// tag.set_lyrics_enc("eng", "description", "lyrics", UTF16);
+    /// let mut tag = FileTags::from_tags(None, Some(id3v2::Tag::new()));
+    /// tag.v2.as_mut().unwrap().set_lyrics_enc("eng", "description", "lyrics", UTF16);
     /// assert_eq!(tag.lyrics().unwrap().as_slice(), "lyrics");
     /// ```
     pub fn set_lyrics_enc<L: StrAllocating, K: StrAllocating, V: StrAllocating>(&mut self, lang: L, description: K, text: V, encoding: Encoding) {
