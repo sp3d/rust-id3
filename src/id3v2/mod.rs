@@ -1,11 +1,14 @@
-use std::cmp::min;
 use std::io::{self, Read, Write};
-use audiotag::{TagError, TagResult};
-use audiotag::ErrorKind::{InvalidInputError, UnsupportedFeatureError};
+use std::io::ErrorKind::InvalidInput;
 use self::frame::{Frame, Encoding, PictureType, Id};
 use self::frame::field::Field;
+
+pub use self::error::{Error, ErrorKind};
+
 use util;
 use std::fmt;
+
+mod error;
 
 /// Tools for working with ID3v2 frames.
 pub mod frame;
@@ -15,21 +18,18 @@ pub mod simple;
 /// An ID3v2 tag containing metadata frames.
 #[derive(Debug)]
 pub struct Tag {
-    /// The version of the tag. The first byte represents the major version number, while the
-    /// second byte represents the revision number.
-    pub version: Version,
-    /// The ID3 header flags.
-    pub flags: TagFlags,
+    /// The version of the ID3v2 tag.
+    version: Version,
+    /// The ID3v2 header flags.
+    flags: TagFlags,
     /// A vector of frames included in the tag.
     pub frames: Vec<Frame>,
     /// The size of the tag when read from a file.
-    pub size: u32,
+    size: u32,
     /// The offset of the end of the last frame that was read.
-    pub offset: u32,
-    /// The offset of the first modified frame.
-    pub modified_offset: u32,
+    offset: u32,
     /// Extended header data (ID3v2.3 or ID3v2.4), if present.
-    pub extended_header: Option<ExtendedHeader>,
+    extended_header: Option<ExtendedHeader>,
 }
 
 /// A flag indicating the presence of a particular piece of ID3v2 extended header data.
@@ -465,13 +465,12 @@ pub fn probe_tag<R: Read>(reader: &mut R) -> io::Result<bool> {
 }
 
 /// Read an ID3v2 tag from a reader.
-pub fn read_tag<R: Read>(mut reader: &mut R) -> TagResult<Tag> {
+pub fn read_tag<R: Read>(mut reader: &mut R) -> Result<Option<Tag>, io::Error> {
     use self::TagFlag::*;
     let mut tag = Tag::new();
 
     if !try!(probe_tag(reader)) {
-        debug!("no ID3 tag found");
-        return Err(TagError::new(InvalidInputError, "buffer does not contain an ID3 tag"))
+        return Ok(None)
     }
 
     let mut version_bytes = [0u8; 2];
@@ -483,17 +482,15 @@ pub fn read_tag<R: Read>(mut reader: &mut R) -> TagResult<Tag> {
         [2, 0] => Version::V2,
         [3, 0] => Version::V3,
         [4, 0] => Version::V4,
-        _ => return Err(TagError::new(InvalidInputError, "unsupported ID3 tag version")),
+        _ => return Err(io::Error::new(InvalidInput, "unsupported ID3 tag version").into()),
     };
 
     tag.flags = TagFlags::from_byte(read_u8!(reader), tag.version());
 
     if tag.flags.get(Unsynchronization) {
-        warn!("unsynchronization is unsupported");
-        return Err(TagError::new(UnsupportedFeatureError, "unsynchronization is not supported"))
+        //TODO(unsynchronization)
     } else if tag.flags.get(Compression) {
-        warn!("ID3v2.2 compression is unsupported");
-        return Err(TagError::new(UnsupportedFeatureError, "ID3v2.2 compression is not supported"));
+        panic!("ID3v2.2 compression is unsupported");
     }
 
     tag.size = util::unsynchsafe(read_be_u32!(reader));
@@ -508,27 +505,25 @@ pub fn read_tag<R: Read>(mut reader: &mut R) -> TagResult<Tag> {
     }
 
     while offset < tag.size as usize + 10 {
-        let (bytes_read, mut frame) = match Frame::read_from(reader, tag.version()) {
+        let (bytes_read, frame) = match Frame::read_from(reader, tag.version()) {
             Ok(opt) => match opt {
                 Some(frame) => frame,
                 None => break //padding
             },
             Err(err) => {
                 debug!("{}", err);
-                return Err(err);
+                return Err(io::Error::new(InvalidInput, err.to_string()));
             }
         };
 
-        frame.offset = offset as u32;
         tag.frames.push(frame);
 
         offset += bytes_read as usize;
     }
 
     tag.offset = offset as u32;
-    tag.modified_offset = tag.offset;
 
-    Ok(tag)
+    Ok(Some(tag))
 }
 
 // Tag {{{
@@ -542,7 +537,6 @@ impl Tag {
             frames: Vec::new(),
             size: 0,
             offset: 0,
-            modified_offset: 0,
             extended_header: None,
         }
     }
@@ -555,15 +549,41 @@ impl Tag {
         tag
     }
 
-    /// Get the version of this tag.
+    /// Get the tag's ID3v2 version.
     #[inline]
     pub fn version(&self) -> Version {
         self.version
     }
 
-    /// Sets the version of this tag.
+    /// Get the serialized size of the tag.
+    #[inline]
+    pub fn size(&self) -> u32 {
+        10 + self.frames.iter().map(|x| x.size()).sum::<u32>()
+    }
+
+    /// Serialize the ID3v2 tag to a writer. If successful, returns the number
+    /// of bytes written.
+    pub fn write_to(&self, writer: &mut Write) -> Result<u32, io::Error> {
+        try!(writer.write(b"ID3"));
+        try!(writer.write(&self.version().to_bytes()));
+        try!(writer.write(&[self.flags().to_byte()]));
+        try!(writer.write(&util::u32_to_bytes(u32::to_be(util::synchsafe(self.size())))));
+
+        let mut bytes_written = 10;
+
+        for frame in &self.frames {
+            debug!("writing {:?}", frame.id);
+            bytes_written += try!(frame.write_to(writer));
+        }
+        Ok(bytes_written)
+    }
+
+    /// Converts the tag to the specified version, dropping any data that
+    /// cannot be represented in the new version.
     ///
-    /// Any frames that could not be converted to the new version will be dropped.
+    /// Since this is a lossy conversion, converting a tag from version A to
+    /// version B and then back to its original version is unlikely to preserve
+    /// all tag data.
     ///
     /// # Example
     /// ```
@@ -573,10 +593,10 @@ impl Tag {
     /// let mut tag = id3v2::Tag::with_version(V4);
     /// assert_eq!(tag.version(), V4);
     ///
-    /// tag.set_version(V3);
+    /// tag.convert_version(V3);
     /// assert_eq!(tag.version(), V3);
     /// ```
-    pub fn set_version(&mut self, version: Version) {
+    pub fn convert_version(&mut self, version: Version) {
         if self.version == version {
             return;
         }
@@ -585,12 +605,10 @@ impl Tag {
 
         let mut remove = Vec::new();
         for frame in self.frames.iter_mut() {
-            if !frame.set_version(version) {
+            if !frame.convert_version(version) {
                 remove.push(frame as *mut _ as *const _);
             }
         }
-
-        self.modified_offset = 0;
 
         self.frames.retain(|frame: &Frame| !remove.contains(&(frame as *const _)));
     }
@@ -600,12 +618,12 @@ impl Tag {
     /// # Example
     /// ```
     /// use id3::id3v2;
-    /// use id3::frame::Frame;
+    /// use id3::id3v2::frame::{Frame, Id};
     ///
     /// let mut tag = id3v2::Tag::new();
     ///
-    /// tag.add_frame(Frame::new("TPE1"));
-    /// tag.add_frame(Frame::new("APIC"));
+    /// tag.add_frame(Frame::new(Id::V4(*b"TPE1"));
+    /// tag.add_frame(Frame::new(Id::V4(*b"APIC"));
     ///
     /// assert_eq!(tag.get_frames().len(), 2);
     /// ```
@@ -614,16 +632,22 @@ impl Tag {
         &self.frames
     }
 
+    /// Get a tag's flags.
+    #[inline]
+    pub fn flags(&self) -> TagFlags {
+        self.flags
+    }
+
     /// Returns a reference to the first frame with the specified identifier.
     ///
     /// # Example
     /// ```
     /// use id3::id3v2;
-    /// use id3::frame::Frame;
+    /// use id3::id3v2::frame::{Frame, Id};
     ///
     /// let mut tag = id3v2::Tag::new();
     ///
-    /// tag.add_frame(Frame::new("TIT2"));
+    /// tag.add_frame(Frame::new(Id::V4(*b"TIT2")));
     ///
     /// assert!(tag.get_frame_by_id("TIT2").is_some());
     /// assert!(tag.get_frame_by_id("TCON").is_none());
@@ -643,16 +667,16 @@ impl Tag {
     /// # Example
     /// ```
     /// use id3::id3v2;
-    /// use id3::frame::Frame;
+    /// use id3::id3v2::frame::{Frame, Id};
     ///
     /// let mut tag = id3v2::Tag::new();
     ///
-    /// tag.add_frame(Frame::new("TXXX"));
-    /// tag.add_frame(Frame::new("TXXX"));
-    /// tag.add_frame(Frame::new("TALB"));
+    /// tag.add_frame(Frame::new(Id::V4(*b"TXXX")));
+    /// tag.add_frame(Frame::new(Id::V4(*b"TXXX")));
+    /// tag.add_frame(Frame::new(Id::V4(*b"TALB")));
     ///
-    /// assert_eq!(tag.get_frames_by_id("TXXX").len(), 2);
-    /// assert_eq!(tag.get_frames_by_id("TALB").len(), 1);
+    /// assert_eq!(tag.get_frames_by_id(V4(*b"TXXX")).len(), 2);
+    /// assert_eq!(tag.get_frames_by_id(V4(*b"TALB")).len(), 1);
     /// ```
     pub fn get_frames_by_id<'a>(&'a self, id: frame::Id) -> Vec<&'a Frame> {
         let mut matches = Vec::new();
@@ -665,47 +689,45 @@ impl Tag {
         matches
     }
 
-    /// Adds a frame to the tag. The frame identifier will attempt to be converted into the
-    /// corresponding identifier for the tag version.
+    /// Adds a frame to the tag. The versions of the tag and frame must match.
     ///
-    /// Returns whether the frame was added to the tag. The only reason the frame would not be
-    /// added to the tag is if the frame identifier could not be converted from the frame version
-    /// to the tag version.
+    /// Returns TRUE after adding the frame if the versions matched, and
+    /// returns FALSE and does nothing if not.
     ///
     /// # Example
     /// ```
     /// use id3::id3v2;
-    /// use id3::frame::Id;
-    /// use id3::frame::Frame;
+    /// use id3::id3v2::frame::{Frame, Id};
     ///
+    /// let id = Id::V4(*b"TALB");
     /// let mut tag = id3v2::Tag::new();
-    /// tag.add_frame(Frame::new(Id::V4(b"TALB")));
-    /// assert_eq!(tag.get_frames()[0].id, Id::V4(b"TALB"));
+    /// tag.add_frame(Frame::new(id));
+    /// assert_eq!(tag.get_frames()[0].id, id);
     /// ```
-    pub fn add_frame(&mut self, mut frame: Frame) -> bool {
-        frame.offset = 0;
-        if !frame.set_version(self.version()) {
+    pub fn add_frame(&mut self, frame: Frame) -> bool {
+        if frame.version() != self.version() {
             return false;
         }
         self.frames.push(frame);
         true
     }
 
-    /// Adds a text frame using the default text encoding. Returns whether the
-    /// ID was a valid text frame ID and the frame successfully created.
+    /// Adds a text frame with the given ID and a UTF-8 string as content.
+    /// Returns whether the frame successfully created.
     ///
     /// # Example
     /// ```
     /// use id3::id3v2;
-    /// use id3::frame::Id;
+    /// use id3::id3v2::frame::Id;
     ///
+    /// let id = Id::V4(*b"TCON");
     /// let mut tag = id3v2::Tag::new();
-    /// tag.add_text_frame(Id::V4(*b"TCON"), "Metal");
-    /// assert_eq!(&tag.get_frame_by_id("TCON").unwrap().content.text(), "Metal");
+    /// tag.add_text_frame(id, "Metal");
+    /// assert_eq!(tag.text_frame_text(id).unwrap(), "Metal");
     /// ```
     #[inline]
     pub fn add_text_frame(&mut self, id: frame::Id, text: &str) -> bool {
-        match Frame::new_text_frame(id, text) {
+        match Frame::new_text_frame(id, text, Encoding::UTF8) {
             Some(frame) => {
                 self.remove_frames_by_id(id);
                 self.frames.push(frame);
@@ -715,27 +737,27 @@ impl Tag {
         }
     }
 
-    /// Adds a text frame using the specified text encoding.
+    /// Adds a text frame with the given contents, which will be transcoded from
+    /// UTF-8 to the specified encoding.
     ///
     /// # Example
     /// ```
     /// use id3::id3v2;
-    /// use id3::Encoding::UTF16;
+    /// use id3::id3v2::frame::Encoding::UTF16;
     ///
     /// let mut tag = id3v2::Tag::new();
     /// tag.add_text_frame_enc("TRCK", "1/13", UTF16);
     /// assert_eq!(&tag.get_frame_by_id("TRCK").unwrap().content.text(), "1/13");
     /// ```
-    /*
-    //TODO(sp3d): find a more type-safe way to encode this
+
+    /* TODO(sp3d): find a more type-safe way to encode this
     as formulated, there are lots of errors that can be made:
     incompatible version+encoding, lossy transcoding into Latin-1, non-text IDs
     some of these should be preventable in the typesystem
     or handled explicitly as behavior option arguments for encoding*/
     pub fn add_text_frame_enc(&mut self, id: frame::Id, text: &str, encoding: Encoding) {
         self.remove_frames_by_id(id);
-        let mut frame = Frame::new_text_frame(id, text/*, encoding*/).unwrap();
-        frame.set_encoding(encoding);
+        let frame = Frame::new_text_frame(id, text, encoding).expect("ID is not a text frame!");
         self.frames.push(frame);
     }
 
@@ -744,41 +766,31 @@ impl Tag {
     /// # Example
     /// ```
     /// use id3::id3v2;
-    /// use id3::frame::Frame;
+    /// use id3::id3v2::frame::{Frame, Id};
     ///
     /// let mut tag = id3v2::Tag::new();
     ///
-    /// tag.add_frame(Frame::new("TXXX"));
-    /// tag.add_frame(Frame::new("TXXX"));
-    /// tag.add_frame(Frame::new("USLT"));
+    /// tag.add_frame(Frame::new(Id::V4(*b"TXXX")));
+    /// tag.add_frame(Frame::new(Id::V4(*b"TXXX")));
+    /// tag.add_frame(Frame::new(Id::V4(*b"USLT")));
     ///
     /// assert_eq!(tag.get_frames().len(), 3);
     ///
-    /// tag.remove_frames_by_id("TXXX");
+    /// tag.remove_frames_by_id(V4(*b"TXXX"));
     /// assert_eq!(tag.get_frames().len(), 1);
     ///
-    /// tag.remove_frames_by_id("USLT");
+    /// tag.remove_frames_by_id(V4(*b"USLT"));
     /// assert_eq!(tag.get_frames().len(), 0);
     /// ```
     pub fn remove_frames_by_id(&mut self, id: frame::Id) {
-        let mut modified_offset = self.modified_offset;
-        {
-            let mut set_modified_offset = |offset: u32| {
-                if offset != 0 {
-                    modified_offset = min(modified_offset, offset);
-                }
-                false
-            };
-            self.frames.retain(|frame| {
-                frame.id != id || set_modified_offset(frame.offset)
-            });
-        }
-        self.modified_offset = modified_offset;
+        self.frames.retain(|frame| {
+            frame.id != id
+        });
     }
 
     /// Returns the content of a text frame with the specified identifier,
-    /// converted to UTF8, or `None` if the frame with the specified ID can't be found, if the content is not
-    /// textual.
+    /// converted to UTF8, or `None` if the frame with the specified ID does not
+    /// exist or does not have textual content.
     pub fn text_frame_text(&self, id: frame::Id) -> Option<String> {
         match self.get_frame_by_id(id) {
             Some(frame) => match &*frame.fields {
@@ -795,25 +807,13 @@ impl Tag {
     /// # Example
     /// ```
     /// use id3::id3v2;
-    /// use id3::frame::Frame;
-    /// use id3::frame;
-    /// use id3::Content::ExtendedTextContent;
+    /// use id3::id3v2::frame::{Frame, Id};
+    /// use id3::id3v2::frame;
     ///
     /// let mut tag = id3v2::Tag::new();
     ///
-    /// let mut frame = Frame::new("TXXX");
-    /// frame.fields = ExtendedTextContent(frame::ExtendedText {
-    ///     key: "key1".to_owned(),
-    ///     value: "value1".to_owned()
-    /// });
-    /// tag.add_frame(frame);
-    ///
-    /// let mut frame = Frame::new("TXXX");
-    /// frame.fields = ExtendedTextContent(frame::ExtendedText {
-    ///     key: "key2".to_owned(),
-    ///     value: "value2".to_owned()
-    /// });
-    /// tag.add_frame(frame);
+    /// tag.add_txxx("key1", "value1");
+    /// tag.add_txxx("key2", "value2");
     ///
     /// assert_eq!(tag.txxx().len(), 2);
     /// assert!(tag.txxx().contains(&("key1".to_owned(), "value1".to_owned())));
@@ -862,7 +862,7 @@ impl Tag {
     /// # Example
     /// ```
     /// use id3::id3v2;
-    /// use id3::Encoding::UTF16;
+    /// use id3::id3v2::frame::Encoding::UTF16;
     ///
     /// let mut tag = id3v2::Tag::new();
     ///
@@ -919,8 +919,6 @@ impl Tag {
     /// assert_eq!(tag.txxx().len(), 0);
     /// ```
     pub fn remove_txxx(&mut self, key: Option<&str>, val: Option<&str>) {
-        let mut modified_offset = self.modified_offset;
-
         let id = self.version().txxx_id();
         self.frames.retain(|frame| {
             let mut key_match = false;
@@ -941,14 +939,8 @@ impl Tag {
                 }
             }
 
-            if key_match && val_match && frame.offset != 0 {
-                modified_offset = min(modified_offset, frame.offset);
-            }
-
             !(key_match && val_match) // true if we want to keep the item
         });
-
-        self.modified_offset = modified_offset;
     }
 
     /// Returns a vector of references to the pictures in the tag.
@@ -956,17 +948,17 @@ impl Tag {
     /// # Example
     /// ```
     /// use id3::id3v2;
-    /// use id3::frame::Frame;
-    /// use id3::frame::Picture;
+    /// use id3::id3v2::frame::{Frame, Id};
+    /// use id3::id3v2::frame::Picture;
     /// use id3::Content::PictureContent;
     ///
     /// let mut tag = id3v2::Tag::new();
     ///
-    /// let mut frame = Frame::new("APIC");
+    /// let mut frame = Frame::new(Id::V4(*b"APIC"));
     /// frame.fields = PictureContent(Picture::new());
     /// tag.add_frame(frame);
     ///
-    /// let mut frame = Frame::new("APIC");
+    /// let mut frame = Frame::new(Id::V4(*b"APIC"));
     /// frame.fields = PictureContent(Picture::new());
     /// tag.add_frame(frame);
     ///
@@ -989,7 +981,7 @@ impl Tag {
     /// # Example
     /// ```
     /// use id3::id3v2;
-    /// use id3::frame::PictureType::Other;
+    /// use id3::id3v2::frame::PictureType::Other;
     ///
     /// let mut tag = id3v2::Tag::new();
     /// tag.add_picture("image/jpeg", Other, vec!());
@@ -1008,8 +1000,8 @@ impl Tag {
     /// # Example
     /// ```
     /// use id3::id3v2;
-    /// use id3::frame::PictureType::Other;
-    /// use id3::Encoding::UTF16;
+    /// use id3::id3v2::frame::PictureType::Other;
+    /// use id3::id3v2::frame::Encoding::UTF16;
     ///
     /// let mut tag = id3v2::Tag::new();
     /// tag.add_picture_enc("image/jpeg", Other, "", vec!(), UTF16);
@@ -1041,7 +1033,7 @@ impl Tag {
     /// # Example
     /// ```
     /// use id3::id3v2;
-    /// use id3::frame::PictureType::{CoverFront, Other};
+    /// use id3::id3v2::frame::PictureType::{CoverFront, Other};
     ///
     /// let mut tag = id3v2::Tag::new();
     /// tag.add_picture("image/jpeg", CoverFront, vec!());
@@ -1053,8 +1045,6 @@ impl Tag {
     /// assert_eq!(tag.pictures()[0].picture_type, Other);
     /// ```
     pub fn remove_picture_type(&mut self, picture_type: PictureType) {
-        let mut modified_offset = self.modified_offset;
-
         let id = self.version().picture_id();
         self.frames.retain(|frame| {
             if frame.id == id {
@@ -1064,17 +1054,11 @@ impl Tag {
                     _ => return false
                 };
 
-                if /*pic.picture_type == picture_type && */frame.offset != 0 {
-                    modified_offset = min(modified_offset, frame.offset);
-                }
-
                 return false/*pic.picture_type != picture_type*/
             }
 
             true
         });
-
-        self.modified_offset = modified_offset;
     }
 
     /// Returns a vector of the user comment frames' (COMM) key/value pairs.
@@ -1082,13 +1066,13 @@ impl Tag {
     /// # Example
     /// ```
     /// use id3::id3v2;
-    /// use id3::frame::Frame;
-    /// use id3::frame;
+    /// use id3::id3v2::frame::{Frame, Id};
+    /// use id3::id3v2::frame;
     /// use id3::Content::CommentContent;
     ///
     /// let mut tag = id3v2::Tag::new();
     ///
-    /// let mut frame = Frame::new("COMM");
+    /// let mut frame = Frame::new(Id::V4(*b"COMM"));
     /// frame.fields = CommentContent(frame::Comment {
     ///     lang: "eng".to_owned(),
     ///     description: "key1".to_owned(),
@@ -1096,7 +1080,7 @@ impl Tag {
     /// });
     /// tag.add_frame(frame);
     ///
-    /// let mut frame = Frame::new("COMM");
+    /// let mut frame = Frame::new(Id::V4(*b"COMM"));
     /// frame.fields = CommentContent(frame::Comment {
     ///     lang: "eng".to_owned(),
     ///     description: "key2".to_owned(),
@@ -1148,7 +1132,7 @@ impl Tag {
     /// # Example
     /// ```
     /// use id3::id3v2;
-    /// use id3::Encoding::UTF16;
+    /// use id3::id3v2::frame::Encoding::UTF16;
     ///
     /// let mut tag = id3v2::Tag::new();
     ///
@@ -1206,8 +1190,6 @@ impl Tag {
     /// assert_eq!(tag.comments().len(), 0);
     /// ```
     pub fn remove_comment(&mut self, description: Option<&str>, text: Option<&str>) {
-        let mut modified_offset = self.modified_offset;
-
         let id = self.version().comment_id();
         self.frames.retain(|frame| {
             let mut description_match = false;
@@ -1235,23 +1217,17 @@ impl Tag {
                 }
             }
 
-            if description_match && text_match && frame.offset != 0 {
-                modified_offset = frame.offset;
-            }
-
             !(description_match && text_match) // true if we want to keep the item
         });
-
-        self.modified_offset = modified_offset;
     }
 
     /// Sets the artist (TPE1) using the specified text encoding.
     ///
     /// # Example
     /// ```
-    /// use id3::{AudioTag, id3v2};
-    /// use id3::Encoding::UTF16;
-    /// use id3::tag::FileTags;
+    /// use id3::id3v2;
+    /// use id3::id3v2::frame::Encoding::UTF16;
+    /// use id3::FileTags;
     ///
     /// let mut tag = FileTags::from_tags(None, Some(id3v2::Tag::new()));
     /// tag.v2.as_mut().unwrap().set_artist_enc("artist", UTF16);
@@ -1267,9 +1243,9 @@ impl Tag {
     ///
     /// # Example
     /// ```
-    /// use id3::{AudioTag, id3v2};
-    /// use id3::Encoding::UTF16;
-    /// use id3::tag::FileTags;
+    /// use id3::id3v2;
+    /// use id3::id3v2::frame::Encoding::UTF16;
+    /// use id3::FileTags;
     ///
     /// let mut tag = FileTags::from_tags(None, Some(id3v2::Tag::new()));
     /// tag.v2.as_mut().unwrap().set_album_artist_enc("album artist", UTF16);
@@ -1287,9 +1263,9 @@ impl Tag {
     ///
     /// # Example
     /// ```
-    /// use id3::{AudioTag, id3v2};
-    /// use id3::Encoding::UTF16;
-    /// use id3::tag::FileTags;
+    /// use id3::id3v2;
+    /// use id3::id3v2::frame::Encoding::UTF16;
+    /// use id3::FileTags;
     ///
     /// let mut tag = FileTags::from_tags(None, Some(id3v2::Tag::new()));
     /// tag.v2.as_mut().unwrap().set_album_enc("album", UTF16);
@@ -1305,9 +1281,9 @@ impl Tag {
     ///
     /// # Example
     /// ```
-    /// use id3::{AudioTag, id3v2};
-    /// use id3::Encoding::UTF16;
-    /// use id3::tag::FileTags;
+    /// use id3::id3v2;
+    /// use id3::id3v2::frame::Encoding::UTF16;
+    /// use id3::FileTags;
     ///
     /// let mut tag = FileTags::from_tags(None, Some(id3v2::Tag::new()));
     /// tag.v2.as_mut().unwrap().set_title_enc("title", UTF16);
@@ -1325,9 +1301,9 @@ impl Tag {
     ///
     /// # Example
     /// ```
-    /// use id3::{AudioTag, id3v2};
-    /// use id3::Encoding::UTF16;
-    /// use id3::tag::FileTags;
+    /// use id3::id3v2;
+    /// use id3::id3v2::frame::Encoding::UTF16;
+    /// use id3::FileTags;
     ///
     /// let mut tag = FileTags::from_tags(None, Some(id3v2::Tag::new()));
     /// tag.v2.as_mut().unwrap().set_genre_enc("genre", UTF16);
@@ -1345,35 +1321,27 @@ impl Tag {
     /// # Example
     /// ```
     /// use id3::id3v2;
-    /// use id3::frame::Frame;
-    /// use id3::Content::TextContent;
+    /// use id3::id3v2::frame::Encoding;
+    /// use id3::id3v2::frame::{Frame, Id};
+    ///
+    /// let id = Id::V4(*b"TYER");
     ///
     /// let mut tag = id3v2::Tag::new();
     /// assert!(tag.year().is_none());
     ///
-    /// let mut frame_valid = Frame::new("TYER");
-    /// frame_valid.content = TextContent("2014".to_owned());
-    /// tag.add_frame(frame_valid);
+    /// tag.add_text_frame(id, "2014", Encoding::Latin1);
     /// assert_eq!(tag.year().unwrap(), 2014);
     ///
-    /// tag.remove_frames_by_id("TYER");
+    /// tag.remove_frames_by_id(id);
     ///
-    /// let mut frame_invalid = Frame::new("TYER");
-    /// frame_invalid.content = TextContent("nope".to_owned());
-    /// tag.add_frame(frame_invalid);
+    /// tag.add_text_frame(id, "nope", Encoding::Latin1);
     /// assert!(tag.year().is_none());
     /// ```
     pub fn year(&self) -> Option<usize> {
         let id = self.version().year_id();
-        //TODO(sp3d): rebuild this on top of fields
-        match self.get_frame_by_id(id) {
-            Some(frame) => {
-                match &frame.fields {
-                    //TextContent(ref text) => from_str(&text),
-                    _ => None
-                }
-            },
-            None => None
+        match self.text_frame_text(id) {
+            Some(ref text) => text.parse().ok(),
+            _ => None,
         }
     }
 
@@ -1398,7 +1366,7 @@ impl Tag {
     /// # Example
     /// ```
     /// use id3::id3v2;
-    /// use id3::Encoding::UTF16;
+    /// use id3::id3v2::frame::Encoding::UTF16;
     ///
     /// let mut tag = id3v2::Tag::new();
     /// tag.set_year_enc(2014, UTF16);
@@ -1412,27 +1380,21 @@ impl Tag {
 
     /// Returns the (track, total_tracks) tuple.
     pub fn track_pair(&self) -> Option<(u32, Option<u32>)> {
-        match self.get_frame_by_id(self.version().track_id()) {
-            Some(frame) => {
-                //TODO(sp3d): rebuild this on top of fields
-                match &frame.fields {
-                    /*TextContent(ref text) => {
-                        let split: Vec<&str> = text.splitn(2, '/').collect();
+        match self.text_frame_text(self.version().track_id()) {
+            Some(ref text) => {
+                let split: Vec<&str> = text.splitn(2, '/').collect();
 
-                        let total_tracks = if split.len() == 2 {
-                            match from_str(split[1]) {
-                                Some(total_tracks) => Some(total_tracks),
-                                None => return None
-                            }
-                        } else {
-                            None
-                        };
+                let total_tracks = if split.len() == 2 {
+                    match split[1].parse() {
+                        Ok(total_tracks) => Some(total_tracks),
+                        _ => return None
+                    }
+                } else {
+                    None
+                };
 
-                        match from_str(split[0]) {
-                            Some(track) => Some((track, total_tracks)),
-                            None => None
-                        }
-                    },*/
+                match split[0].parse() {
+                    Ok(track) => Some((track, total_tracks)),
                     _ => None
                 }
             },
@@ -1444,9 +1406,9 @@ impl Tag {
     ///
     /// # Example
     /// ```
-    /// use id3::{AudioTag, id3v2};
-    /// use id3::Encoding::UTF16;
-    /// use id3::tag::FileTags;
+    /// use id3::id3v2;
+    /// use id3::id3v2::frame::Encoding::UTF16;
+    /// use id3::FileTags;
     ///
     /// let mut tag = FileTags::from_tags(None, Some(id3v2::Tag::new()));
     /// tag.v2.as_mut().unwrap().set_track_enc(5, UTF16);
@@ -1467,9 +1429,8 @@ impl Tag {
     ///
     /// # Example
     /// ```
-    /// use id3::{AudioTag, id3v2};
-    /// use id3::Encoding::UTF16;
-    /// use id3::tag::FileTags;
+    /// use id3::id3v2::frame::Encoding::UTF16;
+    /// use id3::FileTags;
     ///
     /// let mut tag = FileTags::from_tags(None, Some(id3v2::Tag::new()));
     /// tag.v2.as_mut().unwrap().set_total_tracks_enc(12, UTF16);
@@ -1490,9 +1451,9 @@ impl Tag {
     ///
     /// # Example
     /// ```
-    /// use id3::{AudioTag, id3v2};
-    /// use id3::Encoding::UTF16;
-    /// use id3::tag::FileTags;
+    /// use id3::id3v2;
+    /// use id3::id3v2::frame::Encoding::UTF16;
+    /// use id3::FileTags;
     ///
     /// let mut tag = FileTags::from_tags(None, Some(id3v2::Tag::new()));
     /// tag.v2.as_mut().unwrap().set_lyrics_enc("eng", "description", "lyrics", UTF16);

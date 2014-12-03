@@ -1,12 +1,12 @@
 use id3v2::frame::stream::FrameStream;
 use id3v2::frame::{Frame, Id};
-use audiotag::TagResult;
-use std::io::{Read, Write};
+use id3v2::Error;
+use std::io::{self, Read, Write};
 use util;
 
 pub struct FrameV2;
 impl FrameStream for FrameV2 {
-    fn read(reader: &mut Read, _: Option<FrameV2>) -> TagResult<Option<(u32, Frame)>> {
+    fn read(reader: &mut Read, _: Option<FrameV2>) -> Result<Option<(u32, Frame)>, Error> {
         let id = id_or_padding!(reader, 3);
         debug!("reading {:?}", id); 
 
@@ -21,7 +21,7 @@ impl FrameStream for FrameV2 {
         Ok(Some((6 + read_size, frame)))
     }
 
-    fn write(writer: &mut Write, frame: &Frame, _: Option<FrameV2>) -> TagResult<u32> {
+    fn write(writer: &mut Write, frame: &Frame, _: Option<FrameV2>) -> Result<u32, io::Error> {
         let content_bytes = frame.fields_to_bytes();
         let content_size = content_bytes.len() as u32;
 
@@ -32,7 +32,7 @@ impl FrameStream for FrameV2 {
         }
 
         try!(writer.write(&util::u32_to_bytes(content_size)[1..]));
-        try!(writer.write(content_bytes.as_slice()));
+        try!(writer.write(&content_bytes));
 
         Ok(6 + content_size)
     }

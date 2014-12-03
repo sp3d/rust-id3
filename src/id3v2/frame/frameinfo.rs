@@ -1,4 +1,3 @@
-#![plugin(phf_macros)]
 extern crate std;
 
 use phf;

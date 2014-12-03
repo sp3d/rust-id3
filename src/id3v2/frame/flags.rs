@@ -1,4 +1,4 @@
-/// Flags used in ID3 frames.
+/// Flags used in ID3v2 frames.
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct FrameFlags {
     /// Indicates whether or not this frame should be discarded if the tag is altered.
@@ -38,7 +38,7 @@ impl FrameFlags {
 
     /// Returns a vector representation suitable for writing to a file containing an ID3v2.3
     /// tag.
-    fn to_bytes_v3(&self) -> Vec<u8> {
+    fn to_bytes_v3(&self) -> [u8; 2] {
         let mut bytes = [0x0; 2];
 
         if self.tag_alter_preservation {
@@ -60,12 +60,12 @@ impl FrameFlags {
             bytes[1] |= 0x20;
         }
 
-        bytes.to_vec()
+        bytes
     }
 
     /// Returns a vector representation suitable for writing to a file containing an ID3v2.4
     /// tag.
-    fn to_bytes_v4(&self) -> Vec<u8> {
+    fn to_bytes_v4(&self) -> [u8; 2] {
         let mut bytes = [0x0; 2];
 
         if self.tag_alter_preservation {
@@ -93,17 +93,17 @@ impl FrameFlags {
             bytes[1] |= 0x01;
         }
 
-        bytes.to_vec()
+        bytes
     }
 
     /// Returns a vector representation suitable for writing to a file containing an ID3 tag
     /// of the specified version.
     #[inline]
-    pub fn to_bytes(&self, version: u8) -> Vec<u8> {
+    pub fn to_bytes(&self, version: u8) -> [u8; 2] {
         match version {
             0x3 => self.to_bytes_v3(),
             0x4 => self.to_bytes_v4(),
-            _ => vec![0x0; 2],
+            _ => [0x0; 2],
         }
     }
 }

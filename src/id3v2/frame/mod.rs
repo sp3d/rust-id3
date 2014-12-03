@@ -11,9 +11,9 @@ convert_id_3_to_2};
 
 use self::stream::{FrameStream, FrameV2, FrameV3, FrameV4};
 use id3v2::Version;
+use id3v2::Error;
 
-use audiotag::TagResult;
-use std::io::{Read, Write};
+use std::io::{self, Read, Write};
 
 use util;
 use parsers;
@@ -96,9 +96,14 @@ pub struct Frame {
     flags: FrameFlags,
     /// The parsed content of the frame.
     pub fields: Vec<Field>,
-    /// The offset of this frame in the file from which it was loaded.
-    //TODO(sp3d): shouldn't this be offset in the tag, not file?
-    pub offset: u32,
+    /// Group symbol indicating to which group this frame belongs, which should have an
+    /// associated GRID frame in the tag specifying an owner URL. Values less than 0x80 are
+    /// "reserved" per the ID3v2.3, and values outside the range 0x80-0xf0 are forbidden by
+    /// ID3v2.4. Frames with the same group symbol should be processed (e.g., removed) as a unit.
+    group_symbol: u8,
+    /// Byte with similar semantics to the "group symbol", but for frame-level encryption and
+    /// with owners specified in an ENCR frame.
+    encryption_method: u8,
 }
 
 impl PartialEq for Frame {
@@ -121,23 +126,29 @@ impl Frame {
             id: id,
             flags: FrameFlags::new(),
             fields: vec![],
-            offset: 0
+            group_symbol: 0,
+            encryption_method: 0,
         }
     }
 
+    /// Returns the size in bytes of this frame when serialized.
+    pub fn size(&self) -> u32 {
+        self.write_to(std::io::sink().by_ref()).unwrap()
+    }
+
     /// Creates a new ID3v2 text frame with the specified version and identifier,
-    /// using the provided string as the text frame's content and the default
-    /// encoding for the version.
+    /// using the provided string as the text frame's content. The string will
+    /// be transcoded to the specified encoding for storage in the frame.
     ///
-    /// Returns `None` if the given id does not specify a text frame. Note that
-    /// TXX/TXXX are not "regular" text frames and cannot be created with this
-    /// function.
-    pub fn new_text_frame(id: Id, s: &str) -> Option<Frame> {
-        if !id.is_text() {
+    /// Returns `None` if the given id does not specify a text frame, or if the
+    /// specified encoding is not compatible with the version of the ID. Note
+    /// that TXX/TXXX are not "regular" text frames and cannot be created with
+    /// this function.
+    pub fn new_text_frame(id: Id, s: &str, encoding: Encoding) -> Option<Frame> {
+        if !id.is_text() || !id.version().encoding_compatible(encoding) {
             return None
         }
         let mut frame = Frame::new(id);
-        let encoding = id.version().default_encoding();
         let encoded: Vec<u8> = util::encode_string(s, encoding);
         //TODO(sp3d): disallow newline characters?
         frame.fields = match id.version() {
@@ -300,28 +311,31 @@ impl Frame {
     ///
     /// # Example
     /// ```
-    /// use id3::Frame;
+    /// use id3::v2::{Frame, Version};
     ///
-    /// let frame = Frame::new("USLT".into_string(), 4);
-    /// assert_eq!(frame.version(), 4)
+    /// let frame = Frame::new(Id::V4(*b"TALB"));
+    /// assert_eq!(frame.version(), Version::V4)
     /// ```
     #[inline]
     pub fn version(&self) -> Version {
         self.id.version()
     }
 
-    /// Sets the version of the tag. This converts the frame identifier from its previous version
-    /// to the corresponding frame identifier in the new version, filling in empty or zero data
-    /// for new fields in the new frame layout, and removing fields which are not present in the
-    /// new layout. Text fields will be changed to UTF-16 if they were previously encoded as UTF-8
-    /// or UTF-16be and the new version does not support their old encoding.
+    /// Converts the frame to a different version of ID3v2. This converts the
+    /// frame identifier from its previous version to the corresponding frame
+    /// identifier in the new version, filling in empty or zero data for new
+    /// fields in the new frame layout, and removing fields which are not
+    /// present in the new layout. Text fields will be changed to UTF-16 if they
+    /// were previously encoded as UTF-8 or UTF-16be and the new version does
+    /// not support their old encoding.
     ///
-    /// Returns `true` if the conversion was successful. Returns `false` if the frame identifier
-    /// could not be converted.
+    /// Returns `true` if the conversion was successful. Returns `false` if the
+    /// frame identifier could not be converted.
     ///
-    /// Warning: not fully implemented yet! Calling this *will* result in mangled tags!
+    /// Warning: not fully implemented yet! Calling this *will* result in
+    /// mangled tags!
     //#[deprecated = "not fully implemented yet!"]
-    pub fn set_version(&mut self, to: Version) -> bool {
+    pub fn convert_version(&mut self, to: Version) -> bool {
         use id3v2::Version::*;
         let from = self.id;
 
@@ -384,7 +398,7 @@ impl Frame {
     /// is encountered then `None` is returned.
 
     #[inline]
-    pub fn read_from(reader: &mut Read, version: Version) -> TagResult<Option<(u32, Frame)>> {
+    pub fn read_from(reader: &mut Read, version: Version) -> Result<Option<(u32, Frame)>, Error> {
         match version {
             Version::V2 => FrameStream::read(reader, None::<FrameV2>),
             Version::V3 => FrameStream::read(reader, None::<FrameV3>),
@@ -394,7 +408,7 @@ impl Frame {
 
     /// Attempts to write the frame to the writer.
     #[inline]
-    pub fn write_to(&self, writer: &mut Write) -> TagResult<u32> {
+    pub fn write_to(&self, writer: &mut Write) -> Result<u32, io::Error> {
         match self.version() {
             Version::V2 => FrameStream::write(writer, self, None::<FrameV2>),
             Version::V3 => FrameStream::write(writer, self, None::<FrameV3>),
@@ -414,7 +428,7 @@ impl Frame {
     /// flag is set to true then decompression will be performed.
     ///
     /// Returns `Err` if the data is invalid for the frame type.
-    pub fn parse_fields(&self, data: &[u8]) -> TagResult<Vec<Field>> {
+    pub fn parse_fields(&self, data: &[u8]) -> Result<Vec<Field>, Error> {
         let decompressed_opt = if self.flags.compression {
             Some(flate::inflate_bytes_zlib(data).unwrap())
         } else {
@@ -457,20 +471,20 @@ mod tests {
     #[test]
     fn test_frame_flags_to_bytes_v3() {
         let mut flags = FrameFlags::new();
-        assert_eq!(flags.to_bytes(0x3), vec!(0x0, 0x0));
+        assert_eq!(flags.to_bytes(0x3), [0x0, 0x0]);
         flags.tag_alter_preservation = true;
         flags.file_alter_preservation = true;
         flags.read_only = true;
         flags.compression = true;
         flags.encryption = true;
         flags.grouping_identity = true;
-        assert_eq!(flags.to_bytes(0x3), vec!(0xE0, 0xE0));
+        assert_eq!(flags.to_bytes(0x3), [0xE0, 0xE0]);
     }
 
     #[test]
     fn test_frame_flags_to_bytes_v4() {
         let mut flags = FrameFlags::new();
-        assert_eq!(flags.to_bytes(0x4), vec!(0x0, 0x0));
+        assert_eq!(flags.to_bytes(0x4), [0x0, 0x0]);
         flags.tag_alter_preservation = true;
         flags.file_alter_preservation = true;
         flags.read_only = true;
@@ -479,7 +493,7 @@ mod tests {
         flags.encryption = true;
         flags.unsynchronization = true;
         flags.data_length_indicator = true;
-        assert_eq!(flags.to_bytes(0x4), vec!(0x70, 0x4F));
+        assert_eq!(flags.to_bytes(0x4), [0x70, 0x4F]);
     }
 
     #[test]

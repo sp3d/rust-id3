@@ -1,4 +1,4 @@
-rust-id3 tries very hard to obey the letter and spirit of the ID3v2.2, ID3v2.3, and ID3v2.4 specifications (with the goal of being compliant, interoperable, and working on as many real-world corrupted-and-wrong file as possible). But there are some cases where the specifications are nonsensical, self-inconsistent, or ambiguous. This document is intended to describe the library's behavior and the reason for it in these cases.
+rust-id3 tries very hard to obey the letter and spirit of the ID3v2.2, ID3v2.3, and ID3v2.4 specifications (with the goal of being compliant, interoperable, and working on as many real-world corrupted-and-wrong files as possible). But there are some cases where the specifications are nonsensical, self-inconsistent, or ambiguous. This document is intended to describe the library's behavior and the reason for it in these cases.
 
 1. LINK tag frames
 
@@ -22,4 +22,8 @@ TLAN: = 3 characters
 TSRC: = 12 characters
 TYER: = 4 characters (until the year 10000)... this is probably nonsense.
 
-Applications written using rust-id3 are free to enforce these restrictions and likely should.
+Applications written using rust-id3 are encouraged to enforce these restrictions when creating new tags.
+
+3. ID3v2.2 tag compression
+
+ID3v2.2 specifies a flag in the tag header which indicates the usage of compression for the whole tag, but does not specify any compression method. For lack of any documented usage of this feature in the wild, rust-id3 does not attempt to support this flag. This is compliant as per section 3.1 of the ID3v2.2 specification, which states: "Since no compression scheme has been decided yet, the ID3 decoder (for now) should just ignore the entire tag if the compression bit is set."

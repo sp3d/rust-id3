@@ -15,12 +15,20 @@ macro_rules! maybe_read {
         }
     };
 }
+macro_rules! read_all_vec {
+    ($reader:expr, $prop:expr, $len:expr) => {
+        {
+            // Read at most $len bytes from the reader and push them onto $prop.
+            let len = try!($reader.by_ref().take($len as u64).read_to_end(&mut $prop));
+            if len < $len {return Err(::std::io::Error::new(::std::io::ErrorKind::InvalidInput, "unexpected end of stream").into())} else {}
+        }
+    };
+}
 macro_rules! read_all {
     ($reader:expr, $buf:expr) => {
         {
-            use audiotag::{TagError, ErrorKind};
             let len = try!($reader.read($buf));
-            if len < $buf.len() {return Err(TagError::new(ErrorKind::InvalidInputError, "unexpected end of stream"))} else {}
+            if len < $buf.len() {return Err(::std::io::Error::new(::std::io::ErrorKind::InvalidInput, "unexpected end of stream").into())} else {}
         }
     };
 }
@@ -28,7 +36,7 @@ macro_rules! read_at_least {
     ($reader:expr, $buf:expr, $min_len:expr) => {
         {
             let len = try!($reader.read($buf));
-            if len < $min_len {return Err(::std::io::Error::new(::std::io::ErrorKind::InvalidInput, "unexpected end of stream"))} else {len}
+            if len < $min_len {return Err(::std::io::Error::new(::std::io::ErrorKind::InvalidInput, "unexpected end of stream").into())} else {len}
         }
     };
 }

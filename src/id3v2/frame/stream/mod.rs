@@ -1,6 +1,6 @@
 use id3v2::frame::Frame;
-use audiotag::TagResult;
-use std::io::{Read, Write};
+use id3v2::Error;
+use std::io::{self, Read, Write};
 
 pub use self::v2::FrameV2;
 pub use self::v3::FrameV3;
@@ -20,14 +20,13 @@ macro_rules! id_or_padding {
     };
 }
 
-/// A trait for reading and writing frames.
-pub trait FrameStream {
-    /// Returns a tuple containing the number of bytes read and a frame. If pading is encountered
-    /// then `None` is returned.
-    fn read(reader: &mut Read, _: Option<Self>) -> TagResult<Option<(u32, Frame)>>;
+/// A trait for reading and writing ID3v2 frames.
+pub trait FrameStream : Sized {
+    /// Returns a tuple containing the number of bytes read and a frame. If the reader starts with padding, returns Ok(None).
+    fn read(reader: &mut Read, _: Option<Self>) -> Result<Option<(u32, Frame)>, Error>;
 
     /// Attempts to write the frame to the writer.
-    fn write(writer: &mut Write, frame: &Frame, _: Option<Self>) -> TagResult<u32>;
+    fn write(writer: &mut Write, frame: &Frame, _: Option<Self>) -> Result<u32, io::Error>;
 }
 
 mod v2;
