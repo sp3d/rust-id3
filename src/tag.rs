@@ -1,10 +1,9 @@
 extern crate std;
 
-use std::io::{File, SeekSet, SeekCur};
+use std::io::{SeekEnd, IoResult, File, SeekSet, SeekCur};
 use std::collections::HashMap;
 
-use audiotag::{AudioTag, TagError, TagResult};
-use audiotag::ErrorKind::{InvalidInputError, UnsupportedFeatureError};
+use audiotag::{AudioTag, TagResult};
 
 use id3v1;
 use id3v2;
@@ -37,6 +36,16 @@ impl FileTags
     pub fn from_tags(v1: Option<id3v1::Tag>, v2: Option<id3v2::Tag>) -> FileTags
     {
         FileTags {v1: v1, v2: v2, path: None, path_changed: false, remove_v1: false}
+    }
+    pub fn from_seekable<R: Reader+Seek>(reader: &mut R) -> IoResult<FileTags> {
+        let v2 = id3v2::read_tag(reader).ok();
+        drop(reader.seek(-id3v1::TAG_OFFSET, SeekEnd));
+        let mut v1=id3v1::read_tag(reader).ok();
+        if let Some(ref mut v1) = v1 {
+            drop(reader.seek(-id3v1::TAGPLUS_OFFSET, SeekEnd));
+            id3v1::read_xtag(reader, v1);
+        }
+        Ok(FileTags {v1: v1, v2: v2, path: None, path_changed: false, remove_v1: false, })
     }
 }
 
@@ -87,72 +96,11 @@ impl AudioTag for FileTags {
         (try_or_false!(reader.read_exact(3))).as_slice() == b"ID3"
     }
 
-    fn read_from(reader: &mut Reader) -> TagResult<FileTags> {
-        use id3v2::TagFlag::*;
-        let mut tag = id3v2::Tag::new();
-
-        let identifier = try!(reader.read_exact(3));
-        if identifier.as_slice() != b"ID3" {
-            debug!("no ID3 tag found");
-            return Err(TagError::new(InvalidInputError, "buffer does not contain an ID3 tag"))
-        }
-
-        let mut version_bytes = [0u8, ..2];
-        try!(reader.read(&mut version_bytes));
-
-        debug!("tag version {}", version_bytes);
-
-        tag.version = match version_bytes.as_slice() {
-            [2, 0] => id3v2::Version::V2,
-            [3, 0] => id3v2::Version::V3,
-            [4, 0] => id3v2::Version::V4,
-            _ => return Err(TagError::new(InvalidInputError, "unsupported ID3 tag version")),
-        };
-
-        tag.flags = id3v2::TagFlags::from_byte(try!(reader.read_byte()), tag.version());
-
-        if tag.flags.get(Unsynchronization) {
-            debug!("unsynchronization is unsupported");
-            return Err(TagError::new(UnsupportedFeatureError, "unsynchronization is not supported"))
-        } else if tag.flags.get(Compression) {
-            debug!("ID3v2.2 compression is unsupported");
-            return Err(TagError::new(UnsupportedFeatureError, "ID3v2.2 compression is not supported"));
-        }
-
-        tag.size = util::unsynchsafe(try!(reader.read_be_u32()));
-        
-        let mut offset = 10;
-
-        // TODO actually use the extended header data
-        if tag.flags.get(ExtendedHeader) {
-            let ext_size = util::unsynchsafe(try!(reader.read_be_u32()));
-            offset += 4;
-            let _ = try!(reader.read_exact(ext_size as uint));
-            offset += ext_size;
-        }
-
-        while offset < tag.size + 10 {
-            let (bytes_read, mut frame) = match Frame::read_from(reader, tag.version()) {
-                Ok(opt) => match opt {
-                    Some(frame) => frame,
-                    None => break //padding
-                },
-                Err(err) => {
-                    debug!("{}", err);
-                    return Err(err);
-                }
-            };
-
-            frame.offset = offset;
-            tag.frames.push(frame);
-
-            offset += bytes_read;
-        }
-
-        tag.offset = offset;
-        tag.modified_offset = tag.offset;
-
-        Ok(FileTags {v1: None, v2: Some(tag), path: None, path_changed: false, remove_v1: false, })
+    fn read_from<'a>(reader: &'a mut Reader) -> TagResult<FileTags> {
+        //let v2 = id3v2::read_tag(reader).ok();
+        //let v1 = id3v1::read_tag(reader).ok();
+        //TODO(sp3d): implement this
+        Ok(FileTags {v1: None, v2: None, path: None, path_changed: false, remove_v1: false, })
     }
 
     fn write_to(&mut self, writer: &mut Writer) -> TagResult<()> {

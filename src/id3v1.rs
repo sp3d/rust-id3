@@ -319,7 +319,7 @@ fn parse_time(s: &[u8]) -> Time {
 }
 
 /// Read an ID3v1 tag from a reader.
-pub fn read<R: Reader>(reader: &mut R) -> IoResult<Tag> {
+pub fn read_tag<R: Reader>(reader: &mut R) -> IoResult<Tag> {
     use self::Fields::*;
     macro_rules! maybe_read {
         ($prop:expr, $len:expr) => {
@@ -401,11 +401,15 @@ pub fn truncate_zeros(mut s: &[u8]) -> &[u8] {
     s
 }
 
+pub fn read_seek<R: Reader + Seek>(reader: &mut R) {
+    
+}
+
 #[test]
 fn smoke_test() {
     let mut f=::std::io::fs::File::open(&Path::new("test.mp3"));
     f.seek(-TAG_OFFSET, SeekEnd);
-    let mut tag=read(&mut f).unwrap();
+    let mut tag=read_tag(&mut f).unwrap();
     println!("{}", tag);
     f.seek(-TAGPLUS_OFFSET, SeekEnd);
     read_xtag(&mut f, &mut tag);

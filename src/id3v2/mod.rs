@@ -1,4 +1,7 @@
 use std::cmp::min;
+use std::io::{SeekEnd, IoResult};
+use audiotag::{TagError, TagResult};
+use audiotag::ErrorKind::{InvalidInputError, UnsupportedFeatureError};
 use self::frame::{Frame, Encoding, PictureType, Id};
 use self::frame::field::Field;
 use util;
@@ -165,6 +168,7 @@ impl Version {
     pub fn to_bytes(&self) -> [u8, ..2] {
         [*self as u8, 0]
     }
+
     /// Returns the "best" text encoding compatible with this version of tag.
     ///
     /// For ID3 versions at least v2.4 this is UTF8. For versions less than v2.4,
@@ -191,6 +195,81 @@ impl Version {
     id_func!(comment_id, "COM", "COMM")
     id_func!(txxx_id, "TXX", "TXXX")
 // }}}
+
+/// Checks for presence of the signature indicating an ID3v2 tag at the reader's current offset.
+/// Consumes 3 bytes from the reader.
+pub fn probe_tag<R: Reader>(reader: &mut R) -> IoResult<bool> {
+    let identifier = try!(reader.read_exact(3));
+    Ok(identifier.as_slice() == b"ID3")
+}
+
+/// Read an ID3v2 tag from a reader.
+pub fn read_tag<R: Reader>(reader: &mut R) -> TagResult<Tag> {
+    use self::TagFlag::*;
+    let mut tag = Tag::new();
+
+    if !try!(probe_tag(reader)) {
+        debug!("no ID3 tag found");
+        return Err(TagError::new(InvalidInputError, "buffer does not contain an ID3 tag"))
+    }
+
+    let mut version_bytes = [0u8, ..2];
+    try!(reader.read(&mut version_bytes));
+
+    debug!("tag version {}", version_bytes);
+
+    tag.version = match version_bytes.as_slice() {
+        [2, 0] => Version::V2,
+        [3, 0] => Version::V3,
+        [4, 0] => Version::V4,
+        _ => return Err(TagError::new(InvalidInputError, "unsupported ID3 tag version")),
+    };
+
+    tag.flags = TagFlags::from_byte(try!(reader.read_byte()), tag.version());
+
+    if tag.flags.get(Unsynchronization) {
+        warn!("unsynchronization is unsupported");
+        return Err(TagError::new(UnsupportedFeatureError, "unsynchronization is not supported"))
+    } else if tag.flags.get(Compression) {
+        warn!("ID3v2.2 compression is unsupported");
+        return Err(TagError::new(UnsupportedFeatureError, "ID3v2.2 compression is not supported"));
+    }
+
+    tag.size = util::unsynchsafe(try!(reader.read_be_u32()));
+
+    let mut offset = 10;
+
+    // TODO actually use the extended header data
+    if tag.flags.get(ExtendedHeader) {
+        let ext_size = util::unsynchsafe(try!(reader.read_be_u32()));
+        offset += 4;
+        let _ = try!(reader.read_exact(ext_size as uint));
+        offset += ext_size;
+    }
+
+    while offset < tag.size + 10 {
+        let (bytes_read, mut frame) = match Frame::read_from(reader, tag.version()) {
+            Ok(opt) => match opt {
+                Some(frame) => frame,
+                None => break //padding
+            },
+            Err(err) => {
+                debug!("{}", err);
+                return Err(err);
+            }
+        };
+
+        frame.offset = offset;
+        tag.frames.push(frame);
+
+        offset += bytes_read;
+    }
+
+    tag.offset = offset;
+    tag.modified_offset = tag.offset;
+
+    Ok(tag)
+}
 
 // Tag {{{
 impl Tag {
@@ -419,7 +498,7 @@ impl Tag {
     ///
     /// tag.remove_frames_by_id("USLT");
     /// assert_eq!(tag.get_frames().len(), 0);
-    /// ```   
+    /// ```
     pub fn remove_frames_by_id(&mut self, id: frame::Id) {
         let mut modified_offset = self.modified_offset;
         {
