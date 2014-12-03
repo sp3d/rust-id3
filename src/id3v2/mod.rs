@@ -72,7 +72,7 @@ impl fmt::Show for TagFlags {
 
 // TagFlags {{{
 impl TagFlags {
-    /// Creates a new `TagFlags` with all flags set to false.
+    /// Create a new `TagFlags` with all flags set to false.
     #[inline]
     pub fn new() -> TagFlags {
         TagFlags { 
@@ -80,7 +80,7 @@ impl TagFlags {
         }
     }
 
-    /// Creates a new `TagFlags` using the provided byte.
+    /// Create a new `TagFlags` using the provided byte.
     pub fn from_byte(byte: u8, version: Version) -> TagFlags {
         if match version {
             Version::V3|Version::V4 => byte & !0xF0 != 0,
@@ -108,7 +108,7 @@ impl TagFlags {
         }
     }
 
-    /// Creates a byte representation of the flags suitable for writing to an ID3 tag.
+    /// Create a byte representation of the flags suitable for writing to an ID3 tag.
     pub fn to_byte(&self, version: Version) -> u8 {
         self.byte
     }
@@ -174,7 +174,7 @@ impl Version {
 
 // Tag {{{
 impl Tag {
-    /// Creates a new ID3v2.4 tag with no frames. 
+    /// Create a new ID3v2.4 tag with no frames. 
     #[inline]
     pub fn new() -> Tag {
         Tag { 
@@ -187,7 +187,7 @@ impl Tag {
         }
     }
 
-    /// Creates a new ID3 tag with the specified version.
+    /// Create a new ID3 tag with the specified version.
     #[inline]
     pub fn with_version(version: Version) -> Tag {
         let mut tag = Tag::new();
