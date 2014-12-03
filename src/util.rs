@@ -1,9 +1,12 @@
+#![macro_escape]
 extern crate std;
 
 use phf;
 use id3v2::frame::{Encoding, Id};
 use std::mem::transmute;
 use std::string;
+
+macro_rules! static_arr(($ty: ty, $vals: expr) => {{ const _F: &'static [$ty] = & $vals; _F }});
 
 /// Returns the converted to the given encoding. Characters which could not be
 /// represented in the target encoding are replaced with U+FFFD or '?'.
@@ -159,8 +162,8 @@ pub fn string_to_utf16le(text: &str) -> Vec<u8> {
 #[inline(always)]
 pub fn delim(encoding: Encoding) -> &'static [u8] {
     match encoding {
-        Encoding::Latin1 | Encoding::UTF8 => {const _F: &'static [u8] = &[0u8]; _F},
-        Encoding::UTF16 | Encoding::UTF16BE => {const _F: &'static [u8] = &[0u8, 0u8]; _F},
+        Encoding::Latin1 | Encoding::UTF8 => static_arr!(u8, [0u8]),
+        Encoding::UTF16 | Encoding::UTF16BE => static_arr!(u8, [0u8, 0u8]),
     }
 }
 
