@@ -25,6 +25,7 @@ mod encoding;
 mod content;
 mod flags;
 mod stream;
+mod field;
 
 #[deriving(Show, Clone, PartialEq)]
 #[allow(missing_docs)]

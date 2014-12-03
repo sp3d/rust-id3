@@ -175,7 +175,7 @@ impl SupportedVersion {
 
 // Tag {{{
 impl Tag {
-    /// Creates a new ID3v2.3 tag with no frames. 
+    /// Creates a new ID3v2.4 tag with no frames. 
     #[inline]
     pub fn new() -> Tag {
         Tag { 
