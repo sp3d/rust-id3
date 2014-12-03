@@ -6,6 +6,9 @@ pub use self::picture::PictureType;
 pub use self::flags::FrameFlags;
 pub use self::field::Field;
 
+pub use self::frameinfo::{frame_description, frame_format, convert_id_2_to_3,
+convert_id_3_to_2};
+
 use self::stream::{FrameStream, FrameV2, FrameV3, FrameV4};
 use id3v2::Version;
 
@@ -21,6 +24,7 @@ mod picture;
 mod encoding;
 mod flags;
 mod stream;
+mod frameinfo;
 pub mod field;
 
 /// The version of an ID3v2 tag to which a frame belongs, and the frame ID as
@@ -257,7 +261,7 @@ impl Frame {
             (Id::V3(_), V4) | (Id::V4(_), V3) => { return true },
             (Id::V3(id), V2) | (Id::V4(id), V2) => {
                 // attempt to convert the id
-                self.id = match util::convert_id_3_to_2(id) {
+                self.id = match frameinfo::convert_id_3_to_2(id) {
                     Some(new_id) => Id::V2(new_id),
                     None => {
                         debug!("no ID3v2.3 to ID3v2.3 mapping for {}", self.id);
@@ -267,7 +271,7 @@ impl Frame {
             },
             (Id::V2(id), V3)|(Id::V2(id), V4) => {
                 // attempt to convert the id
-                self.id = match util::convert_id_2_to_3(id) {
+                self.id = match frameinfo::convert_id_2_to_3(id) {
                     Some(new_id) => (match to {V3 => Id::V3, V4 => Id::V4, _ => unreachable!() })(new_id),
                     None => {
                         debug!("no ID3v2.2 to ID3v2.3 mapping for {}", self.id);
@@ -360,7 +364,7 @@ impl Frame {
     /// Returns a string describing the frame type.
     #[inline]
     pub fn description(&self) -> &'static str {
-        util::frame_description(self.id)
+        frameinfo::frame_description(self.id)
     }
 }
 

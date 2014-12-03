@@ -4,10 +4,10 @@
 extern crate id3_macros;
 extern crate id3;
 
-use id3::{AudioTag, id3v2, Frame, Encoding};
+use id3::{AudioTag, id3v2};
 use id3::tag::FileTags;
 use id3::id3v2::Version::*;
-use id3::id3v2::frame::Id;
+use id3::id3v2::frame::{Frame, Id, Encoding};
 
 static ID: Id = Id::V4(b!("TRCK"));
 static TRACK: u32 = 5;

@@ -2,8 +2,8 @@ use audiotag::{TagError, TagResult};
 use audiotag::ErrorKind::{InvalidInputError, StringDecodingError, UnsupportedFeatureError};
 
 use id3v2::frame::field::Field;
-use id3v2::frame::{Frame, Id, Encoding};
-use super::id3v2::Version;
+use id3v2::frame::{mod, Frame, Id, Encoding};
+use id3v2::Version;
 use util;
 
 /// The result of a successfully parsed frame.
@@ -61,7 +61,7 @@ pub fn encode(request: EncoderRequest) -> Vec<u8> {
 pub fn decode(mut request: DecoderRequest) -> TagResult<Frame> {
     let mut encoding = None;//request.encoding;
     let mut fields = vec![];
-    let field_types = match util::frame_format(request.id) {
+    let field_types = match frame::frame_format(request.id) {
         Some(ft) => ft,
         None => {return Err(TagError::new(InvalidInputError, "No format could be chosen for the frame ID"))},
     };

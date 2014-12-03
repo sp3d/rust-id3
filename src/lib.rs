@@ -60,15 +60,15 @@ extern crate id3_macros;
 extern crate audiotag; 
 
 pub use self::audiotag::{AudioTag, TagResult, TagError, ErrorKind};
-pub use id3v2::frame::{Frame, FrameFlags, Encoding};
 
-/// Utilities used for reading/writing ID3 tags.
+/// Utilities used for the data formats involved in reading/writing ID3 tags.
 pub mod util;
 
-/// Contains types and methods for operating on ID3v2 frames.
-//pub mod frame;
-
+/// Functionality for handling ID3v1 tags.
 pub mod id3v1;
+/// Functionality for handling ID3v2 tags.
 pub mod id3v2;
+/// Common functionality for handling ID3 tags in general.
 pub mod tag;
+
 mod parsers;
