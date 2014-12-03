@@ -2,6 +2,7 @@ extern crate flate;
 
 use frame::stream::FrameStream;
 use frame::Frame;
+use frame::Id;
 use audiotag::{TagResult, TagError};
 use audiotag::ErrorKind::UnsupportedFeatureError;
 use util;
@@ -9,10 +10,10 @@ use util;
 pub struct FrameV4;
 impl FrameStream for FrameV4 {
     fn read(reader: &mut Reader, _: Option<FrameV4>) -> TagResult<Option<(u32, Frame)>> {
-        let mut frame = Frame::with_version(String::new(), 4);
+        let id = id_or_padding!(reader, 4);
+        debug!("reading {}", id);
 
-        frame.id = id_or_padding!(reader, 4);
-        debug!("reading {}", frame.id);
+        let mut frame = Frame::new(Id::V4(id));
 
         let content_size = util::unsynchsafe(try!(reader.read_be_u32()));
 
@@ -64,7 +65,11 @@ impl FrameStream for FrameV4 {
             content_size += 4;
         }
 
-        try!(writer.write(frame.id.slice_to(4).as_bytes()));
+        if let Id::V4(id_bytes)=frame.id {
+            try!(writer.write(id_bytes.as_slice()));
+        } else {
+            panic!("internal error: writing v2.4 frame but frame ID is not v2.4!");
+        }
         try!(writer.write(util::u32_to_bytes(util::synchsafe(content_size)).as_slice()));
         try!(writer.write(frame.flags.to_bytes(0x4).as_slice()));
         if frame.flags.data_length_indicator {

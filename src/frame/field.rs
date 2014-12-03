@@ -1,12 +1,9 @@
-use audiotag::{TagError, TagResult};
-use audiotag::ErrorKind::{InvalidInputError, StringDecodingError, UnsupportedFeatureError};
-
+#![allow(dead_code, unused_variables)]
 use std::io::IoResult;
 use frame::Encoding;
-use frame::Content::*;
-use util;
 use std::fmt;
 
+/// The various types of primitive data which may be encoded in a field
 #[deriving(Show, PartialEq)]
 pub enum FieldType {
     TextEncoding,
@@ -28,6 +25,7 @@ pub enum FieldType {
 }
 
 impl FieldType {
+    /// Get the encoding, if any, associated with a field. TODO: this may be a nonsense method.
     pub fn get_encoding(&self) -> Option<Encoding> {
         //TODO: this
         use self::FieldType::*;
@@ -38,12 +36,17 @@ impl FieldType {
         }
     }
 
+    /// Indicates whether fields of this type contain a list of multiple pieces of data.
     pub fn is_list(&self) -> bool {
         use self::FieldType::*;
         *self == Latin1List || *self == StringList
     }
     //TODO: to/from char? names?
-    
+
+    /// Get a single character shorthand for this type of field. Fields which
+    /// are lists are represented as the same character as the corresponding
+    /// non-list field type. Capital letters indicate "full" strings which may
+    /// contain newlines.
     pub fn as_char(&self) -> char {
         ['e', 'a', 'A', 'a', 's', 'S', 's', 'l', 'f', 't', '1', '2', '3', '4', 'c', 'd', ][*self as uint]
     }
@@ -108,7 +111,7 @@ impl ::std::str::FromStr for BigNum {
     }
 }
 impl fmt::Show for BigNum {
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> Result<(), fmt::Error>
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result
     {
         loop {}
     }
@@ -156,7 +159,7 @@ impl Field {
             Int16(b1, b0) => (),
             Int24(b2, b1, b0) => (),
             Int32(b3, b2, b1, b0) => (),
-            Int32Plus(ref BigNum) => (),
+            Int32Plus(ref bignum) => (),
             BinaryData(ref data) => (),
         };
         Ok(())

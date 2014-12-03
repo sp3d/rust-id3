@@ -21,12 +21,12 @@
 //! ```no_run
 //! // you need to use AudioTag in order to use the trait features
 //! use id3::{id3v2, AudioTag, Frame};
-//! use id3::id3v2::SupportedVersion::V2_4;
+//! use id3::id3v2::Version::V4;
 //! use id3::tag::FileTags;
 //! use id3::Content::TextContent;
 //! use id3::Encoding::UTF8;
 //!
-//! let mut tag = FileTags::from_tags(None, Some(id3v2::Tag::with_version(V2_4)));
+//! let mut tag = FileTags::from_tags(None, Some(id3v2::Tag::with_version(V4)));
 //! 
 //! // set the album the hard way
 //! let mut frame = Frame::with_version("TALB".into_string(), 4);
@@ -52,6 +52,9 @@
 #[phase(plugin)]
 extern crate phf_mac;
 extern crate phf;
+
+#[phase(plugin)]
+extern crate id3_macros;
 
 extern crate audiotag; 
 

@@ -8,7 +8,7 @@ use audiotag::ErrorKind::{InvalidInputError, UnsupportedFeatureError};
 
 use id3v1;
 use id3v2;
-use frame::{Frame, Encoding, PictureType};
+use frame::{Id, Frame, Encoding, PictureType};
 use frame::Content::LyricsContent;
 use util;
 
@@ -103,9 +103,9 @@ impl AudioTag for FileTags {
         debug!("tag version {}", version_bytes);
 
         tag.version = match version_bytes.as_slice() {
-            [2, 0] => id3v2::SupportedVersion::V2_2,
-            [3, 0] => id3v2::SupportedVersion::V2_3,
-            [4, 0] => id3v2::SupportedVersion::V2_4,
+            [2, 0] => id3v2::Version::V2,
+            [3, 0] => id3v2::Version::V3,
+            [4, 0] => id3v2::Version::V4,
             _ => return Err(TagError::new(InvalidInputError, "unsupported ID3 tag version")),
         };
 
@@ -132,7 +132,7 @@ impl AudioTag for FileTags {
         }
 
         while offset < tag.size + 10 {
-            let (bytes_read, mut frame) = match Frame::read_from(reader, tag.version().to_bytes()[0]) {
+            let (bytes_read, mut frame) = match Frame::read_from(reader, tag.version()) {
                 Ok(opt) => match opt {
                     Some(frame) => frame,
                     None => break //padding
@@ -163,16 +163,16 @@ impl AudioTag for FileTags {
                     !(frame.offset != 0 
                       && (frame.tag_alter_preservation() 
                           || (frame.file_alter_preservation() 
-                                  || DEFAULT_FILE_DISCARD.contains(&frame.id.as_slice()))))
+                                  || DEFAULT_FILE_DISCARD.contains(&&*frame.id.to_string()))))
                 });
 
-                let mut data_cache: HashMap<Vec<u8>, Vec<u8>> = HashMap::new();
+                let mut data_cache: HashMap<*const Frame, Vec<u8>> = HashMap::new();
                 let mut size = 0;
 
                 for frame in id3v2.frames.iter() {
                     let mut frame_writer = Vec::new();
                     size += try!(frame.write_to(&mut frame_writer));
-                    data_cache.insert(frame.uuid.clone(), frame_writer);
+                    data_cache.insert(frame as *const _, frame_writer);
                 }
 
                 id3v2.size = size + PADDING_BYTES;
@@ -189,7 +189,7 @@ impl AudioTag for FileTags {
 
                     frame.offset = bytes_written;
 
-                    bytes_written += match data_cache.get(&frame.uuid) {
+                    bytes_written += match data_cache.get(&(frame as *mut _ as *const _)) {
                         Some(data) => { 
                             try!(writer.write(data.as_slice()));
                             data.len() as u32
@@ -394,7 +394,8 @@ impl AudioTag for FileTags {
     #[inline]
     fn remove_album(&mut self) {
         if let Some(ref mut x)=self.v2 {
-            x.remove_frames_by_id("TSOP");
+            x.remove_frames_by_id(Id::V3(b!("TSOP")));
+            x.remove_frames_by_id(Id::V4(b!("TSOP")));
             let id = x.version().album_id();
             x.remove_frames_by_id(id);
         }
@@ -541,7 +542,7 @@ impl AudioTag for FileTags {
         if let Some(ref x)=self.v2 {
             for frame in x.frames.iter() {
                 match frame.text() {
-                    Some(text) => metadata.push((frame.id.clone(), text)),
+                    Some(text) => metadata.push((frame.id.to_string(), text)),
                     None => {}
                 }
             }

@@ -2,6 +2,7 @@ extern crate flate;
 
 use frame::stream::FrameStream;
 use frame::Frame;
+use frame::Id;
 use audiotag::{TagResult, TagError};
 use audiotag::ErrorKind::UnsupportedFeatureError;
 use util;
@@ -9,10 +10,10 @@ use util;
 pub struct FrameV3;
 impl FrameStream for FrameV3 {
     fn read(reader: &mut Reader, _: Option<FrameV3>) -> TagResult<Option<(u32, Frame)>> {
-        let mut frame = Frame::with_version(String::new(), 3);
+        let id = id_or_padding!(reader, 4);
+        debug!("reading {}", id); 
 
-        frame.id = id_or_padding!(reader, 4);
-        debug!("reading {}", frame.id); 
+        let mut frame = Frame::new(Id::V3(id));
 
         let content_size = try!(reader.read_be_u32());
 
@@ -55,7 +56,11 @@ impl FrameStream for FrameV3 {
             content_size = content_bytes.len() as u32 + 4;
         }
 
-        try!(writer.write(frame.id.slice_to(4).as_bytes()));
+        if let Id::V3(id_bytes)=frame.id {
+            try!(writer.write(id_bytes.as_slice()));
+        } else {
+            panic!("internal error: writing v2.3 frame but frame ID is not v2.3!");
+        }
         try!(writer.write(util::u32_to_bytes(content_size).as_slice()));
         try!(writer.write(frame.flags.to_bytes(0x3).as_slice()))
         if frame.flags.compression {

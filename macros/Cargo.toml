@@ -1,0 +1,8 @@
+[package]
+name = "id3_macros"
+version = "0.0.1"
+authors = [ "" ]
+
+[lib]
+name = "id3_macros"
+plugin = true

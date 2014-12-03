@@ -8,13 +8,15 @@ pub use self::v4::FrameV4;
 macro_rules! id_or_padding {
     ($reader:ident, $n:expr) => {
         {
-            let mut buf = Vec::with_capacity($n);
-            try!($reader.push(1, &mut buf));
-            if buf[0] == 0 { // padding
+            let mut buf = [0, ..$n];
+            let byte = try!($reader.read_byte());
+            if byte == 0 { // padding
                 return Ok(None);
             }
-            try!($reader.push($n - 1, &mut buf));
-            try_string!(buf)
+            buf[0] = byte;
+            try!($reader.read_at_least($n - 1, buf.slice_from_mut(1)));
+            //try_string!(buf)
+            buf
         }
     };
 
