@@ -52,7 +52,7 @@ macro_rules! read_be_u16 {
     ($reader:expr) => {
         {
             let mut data=[0u8; 2]; try!($reader.read(&mut data));
-            (data[0] as u16)|((data[1] as u16) << 8)
+            (data[1] as u16)|((data[0] as u16) << 8)
         }
     };
 }
@@ -60,7 +60,7 @@ macro_rules! read_be_u32 {
     ($reader:expr) => {
         {
             let mut data=[0u8; 4]; try!($reader.read(&mut data));
-            (data[0] as u32)|((data[1] as u32) << 8)|((data[2] as u32) << 16)|((data[3] as u32) << 24)
+            (data[3] as u32)|((data[2] as u32) << 8)|((data[1] as u32) << 16)|((data[0] as u32) << 24)
         }
     };
 }
@@ -237,6 +237,7 @@ pub fn delim_len(encoding: Encoding) -> usize {
 mod tests {
     use util;
     use id3v2::frame::Encoding;
+    use std::io::Read;
 
     #[test]
     fn test_synchsafe() {
@@ -275,5 +276,19 @@ mod tests {
     #[test]
     fn test_u32_to_bytes() {
         assert_eq!(util::u32_to_bytes(0x4B92DF71), [0x4B as u8, 0x92 as u8, 0xDF as u8, 0x71 as u8]);
+    }
+
+    #[test]
+    fn test_read_u16_be() {
+        let mut buf: &[u8] = &[0x12, 0x34];
+        let res: Result<u16, ::std::io::Error> = (|| Ok(read_be_u16!(buf)))();
+        assert_eq!(0x1234, res.unwrap());
+    }
+
+    #[test]
+    fn test_read_u32_be() {
+        let mut buf: &[u8] = &[0x12, 0x34, 0x56, 0x78];
+        let res: Result<u32, ::std::io::Error> = (|| Ok(read_be_u32!(buf)))();
+        assert_eq!(0x12345678, res.unwrap());
     }
 }
