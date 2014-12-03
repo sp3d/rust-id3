@@ -3,14 +3,14 @@ name = "id3"
 version = "0.0.1"
 authors = ["James Hurst <jamesrhurst@users.noreply.github.com>"]
 
-[dependencies.audiotag]
-git = "https://github.com/jamesrhurst/rust-audiotag.git"
+[dependencies.num]
+git = "https://github.com/rust-lang/num.git"
+
+[dependencies.log]
+git = "https://github.com/rust-lang/log.git"
 
 [dependencies.phf]
 git = "https://github.com/sfackler/rust-phf.git"
 
-[dependencies.phf_mac]
+[dependencies.phf_macros]
 git = "https://github.com/sfackler/rust-phf.git"
-
-[dependencies.id3_macros]
-path = "macros"

@@ -13,6 +13,7 @@ use self::stream::{FrameStream, FrameV2, FrameV3, FrameV4};
 use id3v2::Version;
 
 use audiotag::TagResult;
+use std::io::{Read, Write};
 
 use util;
 use parsers;
@@ -30,12 +31,12 @@ pub mod field;
 
 /// The version of an ID3v2 tag to which a frame belongs, and the frame ID as
 /// specified by that version of ID3v2.
-#[deriving(PartialEq, Copy)]
+#[derive(PartialEq, Copy, Clone)]
 #[allow(missing_docs)]
 pub enum Id {
-    V2([u8, ..3]),
-    V3([u8, ..4]),
-    V4([u8, ..4]),
+    V2([u8; 3]),
+    V3([u8; 4]),
+    V4([u8; 4]),
 }
 
 impl Id {
@@ -55,9 +56,9 @@ impl Id {
     #[inline]
     pub fn name(&self) -> &[u8] {
         match *self {
-            Id::V2(ref id) => id.as_slice(),
-            Id::V3(ref id) => id.as_slice(),
-            Id::V4(ref id) => id.as_slice(),
+            Id::V2(ref id) => &*id,
+            Id::V3(ref id) => &*id,
+            Id::V4(ref id) => &*id,
         }
     }
     /// Returns whether this ID corresponds to a standard-layout text frame.
@@ -76,7 +77,7 @@ impl Id {
     }
 }
 
-impl fmt::Show for Id {
+impl fmt::Debug for Id {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             Id::V2(id) => id.fmt(fmt),
@@ -87,7 +88,7 @@ impl fmt::Show for Id {
 }
 
 /// An ID3v2 frame, containing an ID specifying its purpose/format and a set of fields which constitute its content.
-#[deriving(Show)]
+#[derive(Debug)]
 pub struct Frame {
     /// The frame identifier, namespaced to the ID3v2.x version to which the frame belongs.
     pub id: Id,
@@ -191,7 +192,7 @@ impl Frame {
         }
 
         let old_encoding;
-        if let Some(&Field::TextEncoding(ref mut enc)) = self.fields.get_mut(0) {
+        if let Some(&mut Field::TextEncoding(ref mut enc)) = self.fields.get_mut(0) {
             old_encoding = *enc;
             *enc = encoding;
         } else {
@@ -205,13 +206,13 @@ impl Frame {
         //TODO(sp3d): transcode strings!
         for f in self.fields.iter_mut() {
             match f {
-                &Field::String(ref mut s) => {
+                &mut Field::String(ref mut _s) => {
                     
                 },
-                &Field::StringFull(ref mut s) => {
+                &mut Field::StringFull(ref mut _s) => {
                     
                 },
-                &Field::StringList(ref mut s) => {
+                &mut Field::StringList(ref mut _s) => {
                     
                 },
                 _ => (),
@@ -283,7 +284,7 @@ impl Frame {
     /// could not be converted.
     ///
     /// Warning: not fully implemented yet! Calling this *will* result in mangled tags!
-    #[deprecated = "not fully implemented yet!"]
+    //#[deprecated = "not fully implemented yet!"]
     pub fn set_version(&mut self, to: Version) -> bool {
         use id3v2::Version::*;
         let from = self.id;
@@ -298,7 +299,7 @@ impl Frame {
                 self.id = match frameinfo::convert_id_3_to_2(id) {
                     Some(new_id) => Id::V2(new_id),
                     None => {
-                        debug!("no ID3v2.3/4 to ID3v2.2 mapping for {}", self.id);
+                        debug!("no ID3v2.3/4 to ID3v2.2 mapping for {:?}", self.id);
                         return false;
                     }
                 }
@@ -306,9 +307,9 @@ impl Frame {
             (Id::V2(id), V3)|(Id::V2(id), V4) => {
                 // attempt to convert the id
                 self.id = match frameinfo::convert_id_2_to_3(id) {
-                    Some(new_id) => (match to {V3 => Id::V3, V4 => Id::V4, _ => unreachable!() })(new_id),
+                    Some(new_id) => match to {V3 => Id::V3(new_id), V4 => Id::V4(new_id), _ => unreachable!() },
                     None => {
-                        debug!("no ID3v2.2 to ID3v2.3/4 mapping for {}", self.id);
+                        debug!("no ID3v2.2 to ID3v2.3/4 mapping for {:?}", self.id);
                         return false;
                     }
                 };
@@ -347,7 +348,7 @@ impl Frame {
     /// is encountered then `None` is returned.
 
     #[inline]
-    pub fn read_from(reader: &mut Reader, version: Version) -> TagResult<Option<(u32, Frame)>> {
+    pub fn read_from(reader: &mut Read, version: Version) -> TagResult<Option<(u32, Frame)>> {
         match version {
             Version::V2 => FrameStream::read(reader, None::<FrameV2>),
             Version::V3 => FrameStream::read(reader, None::<FrameV3>),
@@ -357,7 +358,7 @@ impl Frame {
 
     /// Attempts to write the frame to the writer.
     #[inline]
-    pub fn write_to(&self, writer: &mut Writer) -> TagResult<u32> {
+    pub fn write_to(&self, writer: &mut Write) -> TagResult<u32> {
         match self.version() {
             Version::V2 => FrameStream::write(writer, self, None::<FrameV2>),
             Version::V3 => FrameStream::write(writer, self, None::<FrameV3>),
@@ -368,7 +369,7 @@ impl Frame {
     /// Creates a vector representation of the fields of a frame suitable for writing to an ID3 tag.
     #[inline]
     pub fn fields_to_bytes(&self) -> Vec<u8> {
-        let request = EncoderRequest { version: self.version(), fields: self.fields.as_slice() };
+        let request = EncoderRequest { version: self.version(), fields: &*self.fields };
         parsers::encode(request)
     }
 
@@ -387,7 +388,7 @@ impl Frame {
         let result = try!(parsers::decode(DecoderRequest {
             id: self.id,
             data: match decompressed_opt {
-                Some(ref decompressed) => decompressed.as_slice(),
+                Some(ref decompressed) => &*decompressed,
                 None => data
             }
         }));
@@ -399,15 +400,9 @@ impl Frame {
     #[inline]
     pub fn reparse(&mut self) {
         let data = self.fields_to_bytes();
-        self.fields = self.parse_fields(data.as_slice()).unwrap();
+        self.fields = self.parse_fields(&*data).unwrap();
     }
     // }}}
-
-    /// Returns a string representing the parsed content.
-    #[deprecated = "This API is does not correspond to ID3v2 semantics and will be removed."]
-    pub fn text(&self) -> Option<String> {
-        None
-    }
 
     /// Returns a string describing the frame type.
     #[inline]
@@ -453,7 +448,7 @@ mod tests {
 
     #[test]
     fn test_to_bytes_v2() {
-        let id = b!("TAL");
+        let id = *b"TAL";
         let text = "album";
         let encoding = Encoding::UTF16;
 
@@ -463,12 +458,12 @@ mod tests {
         data.push(encoding as u8);
         data.extend(util::string_to_utf16(text).into_iter());
 
-        frame.fields = frame.parse_fields(data.as_slice()).unwrap();
-        println!("{}", frame.fields);
+        frame.fields = frame.parse_fields(&*data).unwrap();
+        println!("{:?}", frame.fields);
 
         let mut bytes = Vec::new();
-        bytes.push_all(id.as_slice());
-        bytes.push_all(util::u32_to_bytes(data.len() as u32).slice_from(1));
+        bytes.push_all(&id);
+        bytes.push_all(&util::u32_to_bytes(data.len() as u32)[1..]);
         bytes.extend(data.into_iter());
 
         let mut writer = Vec::new();
@@ -478,7 +473,7 @@ mod tests {
 
     #[test]
     fn test_to_bytes_v3() {
-        let id = b!("TALB");
+        let id = *b"TALB";
         let text = "album";
         let encoding = Encoding::UTF16;
 
@@ -488,12 +483,12 @@ mod tests {
         data.push(encoding as u8);
         data.extend(util::string_to_utf16(text).into_iter());
 
-        frame.fields = frame.parse_fields(data.as_slice()).unwrap();
-        println!("{}", frame.fields);
+        frame.fields = frame.parse_fields(&*data).unwrap();
+        println!("{:?}", frame.fields);
 
         let mut bytes = Vec::new();
-        bytes.push_all(id.as_slice());
-        bytes.extend(util::u32_to_bytes(data.len() as u32).into_iter());
+        bytes.push_all(&id);
+        bytes.push_all(&util::u32_to_bytes(data.len() as u32));
         bytes.push_all(&[0x00, 0x00]);
         bytes.extend(data.into_iter());
 
@@ -504,7 +499,7 @@ mod tests {
 
     #[test]
     fn test_to_bytes_v4() {
-        let id = b!("TALB");
+        let id = *b"TALB";
         let text = "album";
         let encoding = Encoding::UTF16;
 
@@ -517,11 +512,11 @@ mod tests {
         data.push(encoding as u8);
         data.extend(util::string_to_utf16(text).into_iter());
 
-        frame.fields = frame.parse_fields(data.as_slice()).unwrap();
+        frame.fields = frame.parse_fields(&*data).unwrap();
 
         let mut bytes = Vec::new();
-        bytes.push_all(id.as_slice());
-        bytes.extend(util::u32_to_bytes(util::synchsafe(data.len() as u32)).into_iter());
+        bytes.push_all(&id);
+        bytes.push_all(&util::u32_to_bytes(util::synchsafe(data.len() as u32)));
         bytes.push_all(&[0x60, 0x00]);
         bytes.extend(data.into_iter());
 

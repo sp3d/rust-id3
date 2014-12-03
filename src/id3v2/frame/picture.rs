@@ -1,5 +1,5 @@
 /// Roles played by pictures contained in APIC frames, according to the ID3v2 standards.
-#[deriving(Show, FromPrimitive, PartialEq, Copy, Clone)]
+#[derive(Debug, PartialEq, Copy, Clone)]
 #[allow(missing_docs)]
 pub enum PictureType {
     Other,

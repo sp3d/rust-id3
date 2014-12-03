@@ -1,19 +1,60 @@
-#![macro_escape]
+#![macro_use]
 extern crate std;
 
-use phf;
-use id3v2::frame::{Encoding, Id};
+use id3v2::frame::Encoding;
 use std::mem::transmute;
 use std::string;
 
 macro_rules! static_arr(($ty: ty, $vals: expr) => {{ const _F: &'static [$ty] = & $vals; _F }});
+
+macro_rules! maybe_read {
+    ($reader:expr, $prop:expr, $len:expr) => {
+        {
+            // Read at most $len bytes from the reader and push them onto $prop.
+            try!($reader.by_ref().take($len as u64).read_to_end(&mut $prop));
+        }
+    };
+}
+macro_rules! read_at_least {
+    ($reader:expr, $buf:expr, $min_len:expr) => {
+        {
+            let len = try!($reader.read($buf));
+            if len < $min_len {return Err(::std::io::Error::new(::std::io::ErrorKind::InvalidInput, "unexpected end of stream"))} else {len}
+        }
+    };
+}
+macro_rules! read_u8 {
+    ($reader:expr) => {
+        {
+            let mut byte=[0u8]; try!($reader.read(&mut byte));
+            byte[0]
+        }
+    };
+}
+macro_rules! read_be_u16 {
+    ($reader:expr) => {
+        {
+            let mut data=[0u8; 2]; try!($reader.read(&mut data));
+            (data[0] as u16)|((data[1] as u16) << 8)
+        }
+    };
+}
+macro_rules! read_be_u32 {
+    ($reader:expr) => {
+        {
+            let mut data=[0u8; 4]; try!($reader.read(&mut data));
+            (data[0] as u32)|((data[1] as u32) << 8)|((data[2] as u32) << 16)|((data[3] as u32) << 24)
+        }
+    };
+}
+
 
 /// Returns the converted to the given encoding. Characters which could not be
 /// represented in the target encoding are replaced with U+FFFD or '?'.
 pub fn encode_string(s: &str, encoding: Encoding) -> Vec<u8> {
     match encoding {
         //TODO(sp3d): properly encode Latin1
-        Encoding::Latin1 => s.to_ascii().to_vec().into_bytes(),
+        Encoding::Latin1 => s.to_owned().into_bytes(),
         Encoding::UTF8 => s.as_bytes().to_vec(),
         Encoding::UTF16 => string_to_utf16(s),
         Encoding::UTF16BE => string_to_utf16be(s) 
@@ -35,14 +76,14 @@ pub fn unsynchsafe(n: u32) -> u32 {
     (n & 0xFF | (n & 0xFF00) >> 1 | (n & 0xFF0000) >> 2 | (n & 0xFF000000) >> 3)
 }
 
-/// Returns a vector representation of a `u32` value.
+/// Returns an array representation of a `u32` value.
 #[inline]
-pub fn u32_to_bytes(n: u32) -> Vec<u8> {
-    vec!(((n & 0xFF000000) >> 24) as u8, 
-         ((n & 0xFF0000) >> 16) as u8, 
-         ((n & 0xFF00) >> 8) as u8, 
-         (n & 0xFF) as u8
-        )
+pub fn u32_to_bytes(n: u32) -> [u8; 4] {
+    [((n & 0xFF000000) >> 24) as u8, 
+     ((n & 0xFF0000) >> 16) as u8, 
+     ((n & 0xFF00) >> 8) as u8, 
+     (n & 0xFF) as u8,
+    ]
 }
 
 /// Returns a string created from the vector using the specified encoding.
@@ -73,9 +114,9 @@ pub fn string_from_utf16(data: &[u8]) -> Option<string::String> {
     }
 
     if data[0] == 0xFF && data[1] == 0xFE { // little endian
-        string_from_utf16le(data.slice_from(2))
+        string_from_utf16le(&data[2..])
     } else { // big endian
-        string_from_utf16be(data.slice_from(2))
+        string_from_utf16be(&data[2..])
     }
 }
 
@@ -88,16 +129,15 @@ pub fn string_from_utf16le(data: &[u8]) -> Option<string::String> {
 
     if cfg!(target_endian = "little") {
         let buf = unsafe { transmute::<_, &[u16]>(data) };
-        string::String::from_utf16(buf.slice_to(data.len() / 2))
+        string::String::from_utf16(&buf[..data.len() / 2]).ok()
     } else {
         let mut buf: Vec<u16> = Vec::with_capacity(data.len() / 2);
-        let mut it = std::iter::range_step(0, data.len(), 2);
 
-        for i in it {
-            buf.push(data[i] as u16 | data[i + 1] as u16 << 8);
+        for i in 0..(data.len() / 2) {
+            buf.push(data[2*i] as u16 | ((data[2*i + 1] as u16) << 8));
         }
 
-        string::String::from_utf16(buf.as_slice())
+        string::String::from_utf16(&*buf).ok()
     }
 }
 
@@ -109,16 +149,15 @@ pub fn string_from_utf16be(data: &[u8]) -> Option<string::String> {
     }
     if cfg!(target_endian = "big") {
         let buf = unsafe { transmute::<_, &[u16]>(data) };
-        string::String::from_utf16(buf.slice_to(data.len() / 2))
+        string::String::from_utf16(&buf[..data.len() / 2]).ok()
     } else {
         let mut buf: Vec<u16> = Vec::with_capacity(data.len() / 2);
-        let mut it = std::iter::range_step(0, data.len(), 2);
 
-        for i in it {
-            buf.push(data[i] as u16 << 8 | data[i + 1] as u16);
+        for i in 0..(data.len()/2) {
+            buf.push((data[i*2] as u16) << 8 | data[i*2 + 1] as u16);
         }
 
-        string::String::from_utf16(buf.as_slice())
+        string::String::from_utf16(&*buf).ok()
     }
 }
 
@@ -139,7 +178,7 @@ pub fn string_to_utf16(text: &str) -> Vec<u8> {
 /// Returns a UTF-16BE vector representation of the string.
 pub fn string_to_utf16be(text: &str) -> Vec<u8> {
     let mut out: Vec<u8> = Vec::with_capacity(text.len() * 2);
-    for c in text.as_slice().utf16_units() {
+    for c in text.utf16_units() {
         out.push(((c & 0xFF00) >> 8) as u8);
         out.push((c & 0x00FF) as u8);
     }
@@ -169,7 +208,7 @@ pub fn delim(encoding: Encoding) -> &'static [u8] {
 
 /// Get the length of the delimiter for the specified text encoding.
 #[inline]
-pub fn delim_len(encoding: Encoding) -> uint {
+pub fn delim_len(encoding: Encoding) -> usize {
     match encoding {
         Encoding::Latin1 | Encoding::UTF8 => 1,
         Encoding::UTF16 | Encoding::UTF16BE => 2
@@ -194,30 +233,30 @@ mod tests {
 
         let mut utf8 = text.as_bytes().to_vec();
         utf8.push(0);
-        assert_eq!(util::string_from_utf8(utf8.as_slice()).unwrap().as_slice(), text);
+        assert_eq!(&*util::string_from_utf8(&*utf8).unwrap(), text);
 
         // should use little endian BOM
-        assert_eq!(util::string_to_utf16(text).as_slice(), b"\xFF\xFE\x5B\x01\xD1\x1E\x3C\x04\xC5\x1E\x20\x00\x5B\x01\x67\x01\x57\x01\xC9\x1E\x48\x01\x1D\x01");
+        assert_eq!(&*util::string_to_utf16(text), b"\xFF\xFE\x5B\x01\xD1\x1E\x3C\x04\xC5\x1E\x20\x00\x5B\x01\x67\x01\x57\x01\xC9\x1E\x48\x01\x1D\x01");
 
-        assert_eq!(util::string_to_utf16be(text).as_slice(), b"\x01\x5B\x1E\xD1\x04\x3C\x1E\xC5\x00\x20\x01\x5B\x01\x67\x01\x57\x1E\xC9\x01\x48\x01\x1D");
-        assert_eq!(util::string_to_utf16le(text).as_slice(), b"\x5B\x01\xD1\x1E\x3C\x04\xC5\x1E\x20\x00\x5B\x01\x67\x01\x57\x01\xC9\x1E\x48\x01\x1D\x01");
+        assert_eq!(&*util::string_to_utf16be(text), b"\x01\x5B\x1E\xD1\x04\x3C\x1E\xC5\x00\x20\x01\x5B\x01\x67\x01\x57\x1E\xC9\x01\x48\x01\x1D");
+        assert_eq!(&*util::string_to_utf16le(text), b"\x5B\x01\xD1\x1E\x3C\x04\xC5\x1E\x20\x00\x5B\x01\x67\x01\x57\x01\xC9\x1E\x48\x01\x1D\x01");
 
-        assert_eq!(util::string_from_encoding(Encoding::UTF16BE, b"\x01\x5B\x1E\xD1\x04\x3C\x1E\xC5\x00\x20\x01\x5B\x01\x67\x01\x57\x1E\xC9\x01\x48\x01\x1D").unwrap().as_slice(), text);
-        assert_eq!(util::string_from_utf16be(b"\x01\x5B\x1E\xD1\x04\x3C\x1E\xC5\x00\x20\x01\x5B\x01\x67\x01\x57\x1E\xC9\x01\x48\x01\x1D").unwrap().as_slice(), text);
+        assert_eq!(&*util::string_from_encoding(Encoding::UTF16BE, b"\x01\x5B\x1E\xD1\x04\x3C\x1E\xC5\x00\x20\x01\x5B\x01\x67\x01\x57\x1E\xC9\x01\x48\x01\x1D").unwrap(), text);
+        assert_eq!(&*util::string_from_utf16be(b"\x01\x5B\x1E\xD1\x04\x3C\x1E\xC5\x00\x20\x01\x5B\x01\x67\x01\x57\x1E\xC9\x01\x48\x01\x1D").unwrap(), text);
 
-        assert_eq!(util::string_from_utf16le(b"\x5B\x01\xD1\x1E\x3C\x04\xC5\x1E\x20\x00\x5B\x01\x67\x01\x57\x01\xC9\x1E\x48\x01\x1D\x01").unwrap().as_slice(), text);
+        assert_eq!(&*util::string_from_utf16le(b"\x5B\x01\xD1\x1E\x3C\x04\xC5\x1E\x20\x00\x5B\x01\x67\x01\x57\x01\xC9\x1E\x48\x01\x1D\x01").unwrap(), text);
 
         // big endian BOM
-        assert_eq!(util::string_from_encoding(Encoding::UTF16, b"\xFE\xFF\x01\x5B\x1E\xD1\x04\x3C\x1E\xC5\x00\x20\x01\x5B\x01\x67\x01\x57\x1E\xC9\x01\x48\x01\x1D").unwrap().as_slice(), text);
-        assert_eq!(util::string_from_utf16(b"\xFE\xFF\x01\x5B\x1E\xD1\x04\x3C\x1E\xC5\x00\x20\x01\x5B\x01\x67\x01\x57\x1E\xC9\x01\x48\x01\x1D").unwrap().as_slice(), text);
+        assert_eq!(&*util::string_from_encoding(Encoding::UTF16, b"\xFE\xFF\x01\x5B\x1E\xD1\x04\x3C\x1E\xC5\x00\x20\x01\x5B\x01\x67\x01\x57\x1E\xC9\x01\x48\x01\x1D").unwrap(), text);
+        assert_eq!(&*util::string_from_utf16(b"\xFE\xFF\x01\x5B\x1E\xD1\x04\x3C\x1E\xC5\x00\x20\x01\x5B\x01\x67\x01\x57\x1E\xC9\x01\x48\x01\x1D").unwrap(), text);
 
         // little endian BOM 
-        assert_eq!(util::string_from_encoding(Encoding::UTF16, b"\xFF\xFE\x5B\x01\xD1\x1E\x3C\x04\xC5\x1E\x20\x00\x5B\x01\x67\x01\x57\x01\xC9\x1E\x48\x01\x1D\x01").unwrap().as_slice(), text);
-        assert_eq!(util::string_from_utf16(b"\xFF\xFE\x5B\x01\xD1\x1E\x3C\x04\xC5\x1E\x20\x00\x5B\x01\x67\x01\x57\x01\xC9\x1E\x48\x01\x1D\x01").unwrap().as_slice(), text);
+        assert_eq!(&*util::string_from_encoding(Encoding::UTF16, b"\xFF\xFE\x5B\x01\xD1\x1E\x3C\x04\xC5\x1E\x20\x00\x5B\x01\x67\x01\x57\x01\xC9\x1E\x48\x01\x1D\x01").unwrap(), text);
+        assert_eq!(&*util::string_from_utf16(b"\xFF\xFE\x5B\x01\xD1\x1E\x3C\x04\xC5\x1E\x20\x00\x5B\x01\x67\x01\x57\x01\xC9\x1E\x48\x01\x1D\x01").unwrap(), text);
     }
 
     #[test]
     fn test_u32_to_bytes() {
-        assert_eq!(util::u32_to_bytes(0x4B92DF71), vec!(0x4B as u8, 0x92 as u8, 0xDF as u8, 0x71 as u8));
+        assert_eq!(util::u32_to_bytes(0x4B92DF71), [0x4B as u8, 0x92 as u8, 0xDF as u8, 0x71 as u8]);
     }
 }

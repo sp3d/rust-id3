@@ -1,9 +1,10 @@
-use std::io::{SeekEnd, IoResult};
-use std::num::Bounded;
+use std::io::{self, Read, Write, Seek, SeekFrom};
+use std::iter::IntoIterator;
+use num::Bounded;
 use std::fmt;
 
 /// The fields in an ID3v1 tag, including the "1.1" track number field.
-#[deriving(FromPrimitive, Copy)]
+#[derive(Copy, Clone)]
 #[allow(missing_docs)]
 pub enum Fields {
     Title,
@@ -16,8 +17,8 @@ pub enum Fields {
 }
 
 impl Fields {
-    fn length(&self) -> uint {
-        LENGTHS[*self as uint] as uint
+    fn length(&self) -> usize {
+        LENGTHS[*self as usize] as usize
     }
 }
 
@@ -34,7 +35,7 @@ pub static TAGPLUS_OFFSET: i64 = 355;
 static XLENGTHS: &'static [i8]=&[60, 60, 60, 30, 6, 6];
 
 /// The fields in an extended ID3v1 tag.
-#[deriving(FromPrimitive, Copy)]
+#[derive(Copy, Clone)]
 #[allow(missing_docs)]
 pub enum XFields {
     XTitle,
@@ -47,13 +48,13 @@ pub enum XFields {
 }
 
 impl XFields {
-    fn length(&self) -> uint {
-        XLENGTHS[*self as uint] as uint
+    fn length(&self) -> usize {
+        XLENGTHS[*self as usize] as usize
     }
 }
 
 /// ID3v1's notion of a four-digit year.
-#[deriving(Show, Copy)]
+#[derive(Debug, Copy, Clone)]
 pub struct Year
 {
     value: u16,
@@ -85,7 +86,7 @@ impl Bounded for Year {
 }
 
 /// ID3v1 extended time tags--encoded in the format "mmm:ss", a valid value can be a maximum of 999m99s = 999*60+99 = 60039 seconds.
-#[deriving(Copy)]
+#[derive(Copy, Clone, Debug)]
 pub struct Time
 {
     value: u16,
@@ -116,14 +117,14 @@ impl Bounded for Time {
     }
 }
 
-impl fmt::Show for Time {
+impl fmt::Display for Time {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{:03}:{:02}", self.seconds()/60, self.seconds()%60)
     }
 }
 
 /// Parsed ID3v1 tag metadata.
-#[deriving(Show)]
+#[derive(Debug)]
 pub struct Tag {
     /// The full title (ID3v1 + extension if present).
     pub title: Vec<u8>,
@@ -150,12 +151,12 @@ pub struct Tag {
     pub end_time: Time,
 }
 
-fn write_zero_padded<W: Writer>(writer: &mut W, data: &[u8], offset: uint, len: uint) -> IoResult<()> {
+fn write_zero_padded<W: Write>(writer: &mut W, data: &[u8], offset: usize, len: usize) -> Result<(), io::Error> {
     let start = ::std::cmp::min(offset, data.len());
     let actual_len = ::std::cmp::min(offset+len, data.len());
-    try!(writer.write(data[start..actual_len]));
-    for _ in range(0, len-(actual_len-start)) {
-        try!(writer.write_u8(0));
+    try!(writer.write(&data[start..actual_len]));
+    for _ in 0..(len-(actual_len-start)) {
+        try!(writer.write(&[0]));
     }
     Ok(())
 }
@@ -181,32 +182,32 @@ impl Tag {
     }
     /// Write the simple ID3 tag (128 bytes) into the given writer.
     /// If write_track_number is true, the comment field will be truncated to 28 bytes and the removed two bytes will be used for a NUL and the track number.
-    pub fn write<W: Writer>(&self, writer: &mut W, write_track_number: bool) -> IoResult<()> {
+    pub fn write<W: Write>(&self, writer: &mut W, write_track_number: bool) -> Result<(), io::Error> {
         use self::Fields::*;
         try!(writer.write(TAG));
-        try!(write_zero_padded(writer, self.title[], 0, Title.length()));
-        try!(write_zero_padded(writer, self.artist[], 0, Artist.length()));
-        try!(write_zero_padded(writer, self.album[], 0, Album.length()));
+        try!(write_zero_padded(writer, &*self.title, 0, Title.length()));
+        try!(write_zero_padded(writer, &*self.artist, 0, Artist.length()));
+        try!(write_zero_padded(writer, &*self.album, 0, Album.length()));
         try!(write!(writer,"{:04}", self.year.value()));
         if write_track_number {
-            try!(writer.write(self.comment[..Comment.length()-2]));
-            try!(writer.write_u8(0));
-            try!(writer.write_u8(self.track));
+            try!(writer.write(&self.comment[..Comment.length()-2]));
+            try!(writer.write(&[0]));
+            try!(writer.write(&[self.track]));
         } else {
-            try!(writer.write(self.comment[..Comment.length()]));
+            try!(writer.write(&self.comment[..Comment.length()]));
         }
-        try!(writer.write_u8(self.genre));
+        try!(writer.write(&[self.genre]));
         Ok(())
     }
     /// Write the extended portion of an ID3v1 tag (227 bytes) into the given writer.
-    pub fn write_extended<W: Writer>(&self, writer: &mut W) -> IoResult<()> {
+    pub fn write_extended<W: Write>(&self, writer: &mut W) -> Result<(), io::Error> {
         use self::Fields::*;
         use self::XFields::*;
-        try!(write_zero_padded(writer, self.title[], Title.length(), XTitle.length()));
-        try!(write_zero_padded(writer, self.artist[], Artist.length(), XArtist.length()));
-        try!(write_zero_padded(writer, self.album[], Album.length(), XAlbum.length()));
-        try!(writer.write_u8(self.speed));
-        try!(write_zero_padded(writer, self.genre_str[], 0, XGenre.length()));
+        try!(write_zero_padded(writer, &*self.title, Title.length(), XTitle.length()));
+        try!(write_zero_padded(writer, &*self.artist, Artist.length(), XArtist.length()));
+        try!(write_zero_padded(writer, &*self.album, Album.length(), XAlbum.length()));
+        try!(writer.write(&[self.speed]));
+        try!(write_zero_padded(writer, &*self.genre_str, 0, XGenre.length()));
         try!(write!(writer,"{}", self.start_time));
         try!(write!(writer,"{}", self.end_time));
         Ok(())
@@ -216,21 +217,22 @@ impl Tag {
 /// ID3v1 tag reading helpers.
 trait ID3v1Helpers {
     /// Read `n` bytes starting at an offset from the end.
-    fn read_from_end(&mut self, n:uint, offset:i64) -> IoResult<Vec<u8>>;
+    fn read_from_end(&mut self, n:usize, offset:i64) -> Result<Vec<u8>, io::Error>;
 
     /// Read a null-terminated ISO-8859-1 string of size at most `n`, at an offset from the end.
-    fn read_str(&mut self, n: uint, offset: i64) -> IoResult<String>;
+    fn read_str(&mut self, n: usize, offset: i64) -> Result<String, io::Error>;
 }
 
-impl<R: Reader + Seek> ID3v1Helpers for R {
+impl<R: Read + Seek> ID3v1Helpers for R {
     #[inline]
-    fn read_from_end(&mut self, n: uint, offset:i64) -> IoResult<Vec<u8>> {
-        try!(self.seek(-offset, SeekEnd));
-        self.read_exact(n)
+    fn read_from_end(&mut self, n: usize, offset:i64) -> Result<Vec<u8>, io::Error> {
+        try!(self.seek(SeekFrom::End(-offset)));
+        let mut v=Vec::with_capacity(n);
+        self.read(&mut v).and(Ok(v))
     }
 
     #[inline]
-    fn read_str(&mut self, n: uint, offset: i64) -> IoResult<String> {
+    fn read_str(&mut self, n: usize, offset: i64) -> Result<String, io::Error> {
         self.read_from_end(n, offset).map(|vec| extract_nz_88591(vec))
     }
 }
@@ -238,30 +240,28 @@ impl<R: Reader + Seek> ID3v1Helpers for R {
 /// Checks for presence of the signature indicating an ID3v1 tag at the reader's current offset.
 /// Consumes 3 bytes from the reader.
 #[inline]
-pub fn probe_tag<R: Reader>(reader: &mut R) -> IoResult<bool> {
-    let mut x=&mut [0, ..3];
-    let _tag = try!(reader.read_at_least(TAG.len(), x[mut]));
-    Ok(TAG == x[])
+pub fn probe_tag<R: Read>(reader: &mut R) -> Result<bool, io::Error> {
+    let mut x=&mut [0; 3/*TAG.len()*/];
+    reader.read(x).and(Ok(TAG == x))
 }
 
 /// Checks for presence of the signature indicating an ID3v1 extended metadata tag at the reader's current offset.
 /// Consumes 4 bytes from the reader.
 #[inline]
-pub fn probe_xtag<R: Reader>(reader: &mut R) -> IoResult<bool> {
-    let mut x=&mut [0, ..4];
-    let _tag = try!(reader.read_at_least(TAGPLUS.len(), x[mut]));
-    Ok(TAGPLUS == x[])
+pub fn probe_xtag<R: Read>(reader: &mut R) -> Result<bool, io::Error> {
+    let mut x=&mut [0; 4/*TAGPLUS.len()*/];
+    reader.read(x).and(Ok(TAGPLUS == x))
 }
 
 fn parse_year(s: &[u8]) -> Year {
     let zero = Year::new(0).unwrap();
     match ::std::str::from_utf8(s) {
-        Some(st) => {
-            let mn: Option<u16> = ::std::str::from_str(st);
+        Ok(st) => {
+            let mn: Option<u16> = str::parse(st).ok();
             let n = mn.unwrap_or(0);
             Year::new(n).unwrap_or(zero)
         },
-        None => zero
+        Err(_) => zero
     }
 }
 
@@ -319,63 +319,49 @@ fn parse_time(s: &[u8]) -> Time {
 }
 
 /// Read an ID3v1 tag from a reader.
-pub fn read_tag<R: Reader>(reader: &mut R) -> IoResult<Tag> {
+pub fn read_tag<R: Read>(reader: &mut R) -> Result<Tag, io::Error> {
     use self::Fields::*;
-    macro_rules! maybe_read {
-        ($prop:expr, $len:expr) => {
-            {
-                try!(reader.push($len, &mut $prop));
-            }
-        };
-    }
 
     let mut tag = Tag::new();
     // Try to read ID3v1 metadata.
     let has_tag = try!(probe_tag(reader));
     if has_tag {
-        maybe_read!(tag.title, Title.length());
-        maybe_read!(tag.artist, Artist.length());
-        maybe_read!(tag.album, Album.length());
-        let mut year_str=vec![]; maybe_read!(year_str, Year.length());
-        tag.year=parse_year(year_str[]);
-        maybe_read!(tag.comment, Comment.length()-2);
-        let track_guard_byte = try!(reader.read_u8());
+        maybe_read!(reader, tag.title, Title.length());
+        maybe_read!(reader, tag.artist, Artist.length());
+        maybe_read!(reader, tag.album, Album.length());
+        let mut year_str=vec![]; maybe_read!(reader, year_str, Year.length());
+        tag.year=parse_year(&*year_str);
+        maybe_read!(reader, tag.comment, Comment.length()-2);
+        let track_guard_byte=read_u8!(reader);
         if track_guard_byte == 0 {
-            tag.track=try!(reader.read_u8());
+            tag.track=read_u8!(reader);
         } else {
             tag.comment.push(track_guard_byte);
-            tag.comment.push(try!(reader.read_u8()));
+            maybe_read!(reader, tag.comment, 1);
         }
-        tag.genre=try!(reader.read_u8());
+        tag.genre=read_u8!(reader);
     }
 
     Ok(tag)
 }
 
 /// Read the extended portion of an extended ID3v1 tag from a reader, combining its data with a previously-read ID3v1 tag.
-pub fn read_xtag<R: Reader>(reader: &mut R, tag: &mut Tag) -> IoResult<()> {
+pub fn read_xtag<R: Read>(reader: &mut R, tag: &mut Tag) -> Result<(), io::Error> {
     use self::Fields::*;
     use self::XFields::*;
-    macro_rules! maybe_read {
-        ($prop:expr, $len:expr) => {
-            {
-                try!(reader.push($len, &mut $prop));
-            }
-        };
-    }
 
     // Try to read ID3v1 extended metadata.
     let has_xtag = try!(probe_xtag(reader));
     if has_xtag {
-        maybe_read!(tag.title, XTitle.length());
-        maybe_read!(tag.artist, XArtist.length());
-        maybe_read!(tag.album, XAlbum.length());
-        tag.speed = try!(reader.read_byte());
-        maybe_read!(tag.genre_str, Genre.length());
-        let mut start_str=vec![]; maybe_read!(start_str, Start.length());
-        tag.start_time=parse_time(start_str[]);
-        let mut end_str=vec![]; maybe_read!(end_str, End.length());
-        tag.end_time=parse_time(end_str[]);
+        maybe_read!(reader, tag.title, XTitle.length());
+        maybe_read!(reader, tag.artist, XArtist.length());
+        maybe_read!(reader, tag.album, XAlbum.length());
+        tag.speed = read_u8!(reader);
+        maybe_read!(reader, tag.genre_str, Genre.length());
+        let mut start_str=vec![]; maybe_read!(reader, start_str, Start.length());
+        tag.start_time=parse_time(&*start_str);
+        let mut end_str=vec![]; maybe_read!(reader, end_str, End.length());
+        tag.end_time=parse_time(&*end_str);
     }
     Ok(())
 }
@@ -396,22 +382,22 @@ fn extract_nz_88591(s: Vec<u8>) -> String {
 /// Remove trailing zeros from an &[u8].
 pub fn truncate_zeros(mut s: &[u8]) -> &[u8] {
     while s.len() > 0 && s[s.len()-1] == 0 {
-        s=s[..s.len()-1]
+        s=&s[..s.len()-1]
     }
     s
 }
 
-pub fn read_seek<R: Reader + Seek>(reader: &mut R) {
-    
-}
+/*pub fn read_seek<R: Read + Seek>(reader: &mut R) {
+}*/
 
 #[test]
 fn smoke_test() {
-    let mut f=::std::io::fs::File::open(&Path::new("test.mp3"));
-    f.seek(-TAG_OFFSET, SeekEnd);
+    use std::path::Path;
+    let mut f=::std::fs::File::open(&Path::new("test.mp3")).ok().expect("could not open `test.mp3`");
+    f.seek(SeekFrom::End(-TAG_OFFSET));
     let mut tag=read_tag(&mut f).unwrap();
-    println!("{}", tag);
-    f.seek(-TAGPLUS_OFFSET, SeekEnd);
+    println!("{:?}", tag);
+    f.seek(SeekFrom::End(-TAGPLUS_OFFSET));
     read_xtag(&mut f, &mut tag);
-    println!("{}", tag);
+    println!("{:?}", tag);
 }

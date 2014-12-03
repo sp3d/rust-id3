@@ -1,7 +1,5 @@
 #![feature(globs, phase)]
 
-#[phase(plugin)]
-extern crate id3_macros;
 extern crate id3;
 
 use id3::{AudioTag, id3v2};
@@ -9,7 +7,7 @@ use id3::tag::FileTags;
 use id3::id3v2::Version::*;
 use id3::id3v2::frame::{Frame, Id, Encoding};
 
-static ID: Id = Id::V4(b!("TRCK"));
+static ID: Id = Id::V4(*b"TRCK");
 static TRACK: u32 = 5;
 static TOTAL: u32 = 10;
 static INVALID: &'static str = "invalid";
@@ -24,9 +22,6 @@ fn utf8() {
     assert_eq!(tag.v2.as_mut().unwrap().text_frame_text(ID), Some(format!("{}/{}", TRACK, TOTAL)));
 
     let frame = tag.v2.as_ref().unwrap().get_frame_by_id(ID).unwrap();
-
-    assert_eq!(tag.track().unwrap(), TRACK);
-    assert_eq!(tag.total_tracks().unwrap(), TOTAL);
 
     let mut data: Vec<u8> = Vec::new();
     data.push(Encoding::UTF8 as u8);
@@ -43,9 +38,6 @@ fn utf8_only_track() {
 
     let frame = tag.v2.as_ref().unwrap().get_frame_by_id(ID).unwrap();
 
-    assert_eq!(tag.track().unwrap(), TRACK);
-    assert!(tag.total_tracks().is_none());
-
     let mut data: Vec<u8> = Vec::new();
     data.push(Encoding::UTF8 as u8);
     data.extend(format!("{}", TRACK).into_bytes().into_iter());
@@ -60,21 +52,16 @@ fn utf8_invalid() {
     let mut data = Vec::new();
     data.push(Encoding::UTF8 as u8);
     data.extend(format!("{}/{}", INVALID, TOTAL).into_bytes().into_iter());
-    frame.fields = frame.parse_fields(data.as_slice()).unwrap();
+    frame.fields = frame.parse_fields(&*data).unwrap();
     tag.v2.as_mut().unwrap().add_frame(frame);
-    assert!(tag.track().is_none());
-    assert!(tag.total_tracks().is_none());
-
     tag.v2.as_mut().unwrap().remove_frames_by_id(ID);
 
     let mut frame = Frame::new(ID);
     let mut data = Vec::new();
     data.push(Encoding::UTF8 as u8);
     data.extend(format!("{}/{}", TRACK, INVALID).into_bytes().into_iter());
-    frame.fields = frame.parse_fields(data.as_slice()).unwrap();
+    frame.fields = frame.parse_fields(&*data).unwrap();
     tag.v2.as_mut().unwrap().add_frame(frame);
-    assert!(tag.track().is_none());
-    assert!(tag.total_tracks().is_none());
 }
 //}}}
 
@@ -88,12 +75,9 @@ fn utf16() {
     assert_eq!(tag.v2.as_mut().unwrap().text_frame_text(ID), Some(format!("{}/{}", TRACK, TOTAL)));
     let frame = tag.v2.as_ref().unwrap().get_frame_by_id(ID).unwrap();
 
-    assert_eq!(tag.track().unwrap(), TRACK);
-    assert_eq!(tag.total_tracks().unwrap(), TOTAL);
-
     let mut data = Vec::new();
     data.push(Encoding::UTF16 as u8);
-    data.extend(id3::util::string_to_utf16(format!("{}/{}", TRACK, TOTAL).as_slice()).into_iter());
+    data.extend(id3::util::string_to_utf16(&*format!("{}/{}", TRACK, TOTAL)).into_iter());
     assert_eq!(frame.fields_to_bytes(), data);
 }
 
@@ -106,12 +90,9 @@ fn utf16_only_track() {
 
     let frame = tag.v2.as_ref().unwrap().get_frame_by_id(ID).unwrap();
 
-    assert_eq!(tag.track().unwrap(), TRACK);
-    assert!(tag.total_tracks().is_none());
-
     let mut data: Vec<u8> = Vec::new();
     data.push(Encoding::UTF16 as u8);
-    data.extend(id3::util::string_to_utf16(format!("{}", TRACK).as_slice()).into_iter());
+    data.extend(id3::util::string_to_utf16(&*format!("{}", TRACK)).into_iter());
     assert_eq!(frame.fields_to_bytes(), data);
 }
 
@@ -122,22 +103,17 @@ fn utf16_invalid() {
     let mut frame = Frame::new(ID);
     let mut data = Vec::new();
     data.push(Encoding::UTF16 as u8);
-    data.extend(id3::util::string_to_utf16(format!("{}/{}", INVALID, TOTAL).as_slice()).into_iter());
-    frame.fields = frame.parse_fields(data.as_slice()).unwrap();
+    data.extend(id3::util::string_to_utf16(&*format!("{}/{}", INVALID, TOTAL)).into_iter());
+    frame.fields = frame.parse_fields(&*data).unwrap();
     tag.v2.as_mut().unwrap().add_frame(frame);
-    assert!(tag.track().is_none());
-    assert!(tag.total_tracks().is_none());
-
     tag.v2.as_mut().unwrap().remove_frames_by_id(ID);
 
     let mut frame = Frame::new(ID);
     let mut data = Vec::new();
     data.push(Encoding::UTF16 as u8);
-    data.extend(id3::util::string_to_utf16(format!("{}/{}", TRACK, INVALID).as_slice()).into_iter());
-    frame.fields = frame.parse_fields(data.as_slice()).unwrap();
+    data.extend(id3::util::string_to_utf16(&*format!("{}/{}", TRACK, INVALID)).into_iter());
+    frame.fields = frame.parse_fields(&*data).unwrap();
     tag.v2.as_mut().unwrap().add_frame(frame);
-    assert!(tag.track().is_none());
-    assert!(tag.total_tracks().is_none());
 }
 //}}}
 
@@ -152,12 +128,9 @@ fn utf16be() {
 
     let frame = tag.v2.as_ref().unwrap().get_frame_by_id(ID).unwrap();
 
-    assert_eq!(tag.track().unwrap(), TRACK);
-    assert_eq!(tag.total_tracks().unwrap(), TOTAL);
-
     let mut data: Vec<u8> = Vec::new();
     data.push(Encoding::UTF16BE as u8);
-    data.extend(id3::util::string_to_utf16be(format!("{}/{}", TRACK, TOTAL).as_slice()).into_iter());
+    data.extend(id3::util::string_to_utf16be(&*format!("{}/{}", TRACK, TOTAL)).into_iter());
     assert_eq!(frame.fields_to_bytes(), data);
 }
 
@@ -169,12 +142,9 @@ fn utf16be_only_track() {
 
     let frame = tag.v2.as_ref().unwrap().get_frame_by_id(ID).unwrap();
 
-    assert_eq!(tag.track().unwrap(), TRACK);
-    assert!(tag.total_tracks().is_none());
-
     let mut data: Vec<u8> = Vec::new();
     data.push(Encoding::UTF16BE as u8);
-    data.extend(id3::util::string_to_utf16be(format!("{}", TRACK).as_slice()).into_iter());
+    data.extend(id3::util::string_to_utf16be(&*format!("{}", TRACK)).into_iter());
     assert_eq!(frame.fields_to_bytes(), data);
 }
 
@@ -185,21 +155,17 @@ fn utf16be_invalid() {
     let mut frame = Frame::new(ID);
     let mut data = Vec::new();
     data.push(Encoding::UTF16BE as u8);
-    data.extend(id3::util::string_to_utf16be(format!("{}/{}", INVALID, TOTAL).as_slice()).into_iter());
-    frame.fields = frame.parse_fields(data.as_slice()).unwrap();
+    data.extend(id3::util::string_to_utf16be(&*format!("{}/{}", INVALID, TOTAL)).into_iter());
+    frame.fields = frame.parse_fields(&*data).unwrap();
     tag.v2.as_mut().unwrap().add_frame(frame);
-    assert!(tag.track().is_none());
-    assert!(tag.total_tracks().is_none());
 
     tag.v2.as_mut().unwrap().remove_frames_by_id(ID);
 
     let mut frame = Frame::new(ID);
     let mut data = Vec::new();
     data.push(Encoding::UTF16BE as u8);
-    data.extend(id3::util::string_to_utf16be(format!("{}/{}", TRACK, INVALID).as_slice()).into_iter());
-    frame.fields = frame.parse_fields(data.as_slice()).unwrap();
+    data.extend(id3::util::string_to_utf16be(&*format!("{}/{}", TRACK, INVALID)).into_iter());
+    frame.fields = frame.parse_fields(&*data).unwrap();
     tag.v2.as_mut().unwrap().add_frame(frame);
-    assert!(tag.track().is_none());
-    assert!(tag.total_tracks().is_none());
 }
 //}}}

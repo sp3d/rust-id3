@@ -6,7 +6,7 @@
 extern crate syntax;
 extern crate rustc;
 
-use syntax::ast::{mod, TokenTree, LitStr, LitChar, ExprLit};
+use syntax::ast::{self, TokenTree, LitStr, LitChar, ExprLit};
 use syntax::codemap::{Span};
 use syntax::ext::base::*;
 use rustc::plugin::Registry;

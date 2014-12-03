@@ -1,6 +1,6 @@
 use id3v2::frame::PictureType;
 
-#[deriving(Show, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 #[allow(missing_docs)]
 /// The parsed contents of an extended text frame.
 pub struct ExtendedText {
@@ -8,7 +8,7 @@ pub struct ExtendedText {
     pub value: String
 }
 
-#[deriving(Show, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 #[allow(missing_docs)]
 /// The parsed contents of an unsynchronized lyrics frame.
 pub struct Lyrics {
@@ -17,7 +17,7 @@ pub struct Lyrics {
     pub text: String
 }
 
-#[deriving(Show, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 #[allow(missing_docs)]
 /// The parsed contents of a comment frame.
 pub struct Comment {
@@ -26,7 +26,7 @@ pub struct Comment {
     pub text: String
 }
 
-#[deriving(Show, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 #[allow(missing_docs)]
 /// The parsed contents of an extended link frame.
 pub struct ExtendedLink {
@@ -35,7 +35,7 @@ pub struct ExtendedLink {
 }
 
 /// A structure representing an ID3 picture frame's contents.
-#[deriving(Show, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Picture {
     /// The picture's MIME type.
     pub mime_type: String,

@@ -1,5 +1,5 @@
 use std::cmp::min;
-use std::io::{SeekEnd, IoResult};
+use std::io::{self, Read, Write};
 use audiotag::{TagError, TagResult};
 use audiotag::ErrorKind::{InvalidInputError, UnsupportedFeatureError};
 use self::frame::{Frame, Encoding, PictureType, Id};
@@ -13,7 +13,7 @@ pub mod frame;
 pub mod simple;
 
 /// An ID3v2 tag containing metadata frames. 
-#[deriving(Show)]
+#[derive(Debug)]
 pub struct Tag {
     /// The version of the tag. The first byte represents the major version number, while the
     /// second byte represents the revision number.
@@ -28,10 +28,86 @@ pub struct Tag {
     pub offset: u32,
     /// The offset of the first modified frame.
     pub modified_offset: u32,
+    /// Extended header data (ID3v2.3 or ID3v2.4), if present.
+    pub extended_header: Option<ExtendedHeader>,
+}
+
+/// A flag indicating the presence of a particular piece of ID3v2 extended header data.
+#[derive(Debug)]
+pub enum ExtendedFlag {
+    /// Indicates that this ID3v2 tag is an update to an earlier tag in the stream, as
+    /// might occur in streaming media playback to override the previous track's title
+    /// and other metadata. This flag has no payload (ID3v2.4).
+    Update = 16,
+    /// Indicates the presence of a payload containing a CRC32 checksum of the frame
+    /// data (before unsynchronization) between the extended header and the padding
+    /// (ID3v2.3 or ID3v2.4).
+    Crc = 32,
+    /// Indicates a 1-byte payload specifying restrictions to be placed on the tag,
+    /// such as total tag size, text encodings, string lengths, image formats, and
+    /// image dimensions (ID3v2.4).
+    TagRestrictions = 64,
+    /// An unknown extended header entry. To comply with the ID3v2.4 spec, unknown
+    /// extended header data MUST be removed when the tag is modified. The payload
+    /// may be any size.
+    Unknown//(u8),//TODO(sp3d): preserve flag index!
+}
+
+/// An ID3v2 extended header, which consists of a series of flags and
+/// corresponding data payloads. 
+#[derive(Debug)]
+pub struct ExtendedHeader {
+    flag_data: Vec<(ExtendedFlag, Vec<u8>)>
+}
+
+impl ExtendedHeader {
+    fn size(&self) -> usize {
+        let flag_data_len: usize=self.flag_data.iter().map(|&(_, ref vec)| vec.len()).sum();
+        4/*size field*/+1/*bytes of flags*/+flag_data_len
+    }
+    fn serialize<W: Write>(&self, writer: &mut W) -> io::Result<()> {
+        let size = self.size() as u32;
+        //TODO: verify endianness
+        try!(writer.write(&util::u32_to_bytes(util::synchsafe(size))));
+        try!(writer.write(&[1u8]));
+        for &(_, ref vec) in self.flag_data.iter() {
+            try!(writer.write(&*vec));
+        }
+        Ok(())
+    }
+    fn parse<R: Read>(reader: &mut R, offset: /*Option<*/&mut usize/*>*/) -> io::Result<ExtendedHeader> {
+        let size = util::unsynchsafe(read_be_u32!(reader));
+        *offset += 4;
+        let n_flag_bytes = read_u8!(reader);
+        *offset += 1;
+        
+        let mut n_unknown_flags = 0;
+        //read each flag byte
+        //let mut flags = vec![];
+        for i in 0..n_flag_bytes {
+            let flag_byte = read_u8!(reader);
+            *offset += 1;
+            if i == 0 {
+                //flags.push_all(&[])
+            } else {
+                n_unknown_flags += flag_byte.count_ones();
+                //flag byte unknown
+            }
+        }
+        let mut flag_data=vec![];
+        let mut size_remaining = size;
+        
+        //TODO(sp3d): what is going on here?
+        let mut ext_header = vec![0; size as usize]; try!(reader.read(&mut ext_header));
+        ext_header;
+        *offset += size as usize;
+
+        Ok(ExtendedHeader { flag_data: flag_data })
+    }
 }
 
 /// Flags used in ID3v2 tag headers.
-#[deriving(Show, Copy)]
+#[derive(Debug, Copy, Clone)]
 pub enum TagFlag {
     /// Indicates whether or not unsynchronization is used. Valid in all ID3v2 tag versions.
     Unsynchronization,
@@ -46,31 +122,32 @@ pub enum TagFlag {
 }
 
 impl TagFlag {
+    /// Returns the value of a byte in which only this flag is set.
     #[inline]
     pub fn value(&self) -> u8 {
-        [0x80, 0x40, 0x20, 0x10, 0x40][*self as uint]
+        [0x80, 0x40, 0x20, 0x10, 0x40][*self as usize]
     }
 }
 
 /// The flags set in an ID3v2 header.
-#[deriving(Copy)]
+#[derive(Copy, Clone)]
 pub struct TagFlags {
     byte: u8,
     version: Version,
 }
 
-impl fmt::Show for TagFlags {
+impl fmt::Debug for TagFlags {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
         //TODO(sp3d): verify that the Ok case returns the right value
         use self::TagFlag::*;
-        try!(fmt.write(b"{"));
+        try!(fmt.write_str("{"));
         for i in [Unsynchronization, ExtendedHeader, Experimental, Footer, Compression].iter() {
             if self.get(*i) {
                 try!(i.fmt(fmt));
-                try!(fmt.write(b" "));
+                try!(fmt.write_str(" "));
             }
         }
-        fmt.write(b"}")
+        fmt.write_str("}")
     }
 }
 
@@ -91,7 +168,7 @@ impl TagFlags {
             Version::V3|Version::V4 => byte & !0xF0 != 0,
             Version::V2 => byte & !0xC0 != 0,
         } {
-            info!("Unknown flags found while parsing flags byte of {} tag: {}", version, byte);
+            info!("Unknown flags found while parsing flags byte of {:?} tag: {}", version, byte);
         }
         TagFlags {
             byte: byte,
@@ -127,7 +204,7 @@ impl TagFlags {
                 self.byte &= !which.value();
             }
         } else {
-            warn!("Attempt to set incompatible flag ({}) on version {} tag!", which, self.version);
+            warn!("Attempt to set incompatible flag ({:?}) on version {:?} tag!", which, self.version);
         }
     }
 
@@ -141,7 +218,7 @@ impl TagFlags {
 /// The version of an ID3v2 tag. Supported versions include 2.2, 2.3, and 2.4. When writing new
 /// tags, prefer the highest possible version unless specific legacy software demands otherwise.
 #[allow(non_camel_case_types, missing_docs)]
-#[deriving(Show, PartialEq, Eq, PartialOrd, Copy)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Copy, Clone)]
 pub enum Version {
     V2 = 2,
     V3 = 3,
@@ -154,9 +231,9 @@ impl Version {
     #[allow(missing_docs)]
     pub fn $name(&self) -> frame::Id {
         match *self {
-            Version::V2 => Id::V2(b!($v2_name)),
-            Version::V3 => Id::V3(b!($v34_name)),
-            Version::V4 => Id::V4(b!($v34_name)),
+            Version::V2 => Id::V2(*$v2_name),
+            Version::V3 => Id::V3(*$v34_name),
+            Version::V4 => Id::V4(*$v34_name),
         }
     }
 }
@@ -165,7 +242,7 @@ impl Version {
 impl Version {
     /// Returns the way this ID3v2 version is encoded in an ID3 tag.
     #[inline]
-    pub fn to_bytes(&self) -> [u8, ..2] {
+    pub fn to_bytes(&self) -> [u8; 2] {
         [*self as u8, 0]
     }
 
@@ -204,28 +281,29 @@ impl Version {
     }
 }
 // Frame ID Querying {{{
-    id_func!(artist_id, "TP1", "TPE1");
-    id_func!(album_artist_id, "TP2", "TPE2");
-    id_func!(album_id, "TAL", "TALB");
-    id_func!(title_id, "TT2", "TIT2");
-    id_func!(genre_id, "TCO", "TCON");
-    id_func!(year_id, "TYE", "TYER");
-    id_func!(track_id, "TRK", "TRCK");
-    id_func!(lyrics_id, "ULT", "USLT");
-    id_func!(picture_id, "PIC", "APIC");
-    id_func!(comment_id, "COM", "COMM");
-    id_func!(txxx_id, "TXX", "TXXX");
+    id_func!(artist_id, b"TP1", b"TPE1");
+    id_func!(album_artist_id, b"TP2", b"TPE2");
+    id_func!(album_id, b"TAL", b"TALB");
+    id_func!(title_id, b"TT2", b"TIT2");
+    id_func!(genre_id, b"TCO", b"TCON");
+    id_func!(year_id, b"TYE", b"TYER");
+    id_func!(track_id, b"TRK", b"TRCK");
+    id_func!(lyrics_id, b"ULT", b"USLT");
+    id_func!(picture_id, b"PIC", b"APIC");
+    id_func!(comment_id, b"COM", b"COMM");
+    id_func!(txxx_id, b"TXX", b"TXXX");
 // }}}
 
 /// Checks for presence of the signature indicating an ID3v2 tag at the reader's current offset.
 /// Consumes 3 bytes from the reader.
-pub fn probe_tag<R: Reader>(reader: &mut R) -> IoResult<bool> {
-    let identifier = try!(reader.read_exact(3));
-    Ok(identifier.as_slice() == b"ID3")
+pub fn probe_tag<R: Read>(reader: &mut R) -> io::Result<bool> {
+    let mut identifier = [0u8; 3];
+    try!(reader.read(&mut identifier));
+    Ok(identifier == *b"ID3")
 }
 
 /// Read an ID3v2 tag from a reader.
-pub fn read_tag<R: Reader>(reader: &mut R) -> TagResult<Tag> {
+pub fn read_tag<R: Read>(mut reader: &mut R) -> TagResult<Tag> {
     use self::TagFlag::*;
     let mut tag = Tag::new();
 
@@ -234,19 +312,19 @@ pub fn read_tag<R: Reader>(reader: &mut R) -> TagResult<Tag> {
         return Err(TagError::new(InvalidInputError, "buffer does not contain an ID3 tag"))
     }
 
-    let mut version_bytes = [0u8, ..2];
+    let mut version_bytes = [0u8; 2];
     try!(reader.read(&mut version_bytes));
 
-    debug!("tag version {}", version_bytes);
+    debug!("tag version bytes {:?}", version_bytes);
 
-    tag.version = match version_bytes.as_slice() {
+    tag.version = match version_bytes {
         [2, 0] => Version::V2,
         [3, 0] => Version::V3,
         [4, 0] => Version::V4,
         _ => return Err(TagError::new(InvalidInputError, "unsupported ID3 tag version")),
     };
 
-    tag.flags = TagFlags::from_byte(try!(reader.read_byte()), tag.version());
+    tag.flags = TagFlags::from_byte(read_u8!(reader), tag.version());
 
     if tag.flags.get(Unsynchronization) {
         warn!("unsynchronization is unsupported");
@@ -256,19 +334,16 @@ pub fn read_tag<R: Reader>(reader: &mut R) -> TagResult<Tag> {
         return Err(TagError::new(UnsupportedFeatureError, "ID3v2.2 compression is not supported"));
     }
 
-    tag.size = util::unsynchsafe(try!(reader.read_be_u32()));
+    tag.size = util::unsynchsafe(read_be_u32!(reader));
 
     let mut offset = 10;
 
     // TODO actually use the extended header data
     if tag.flags.get(ExtendedHeader) {
-        let ext_size = util::unsynchsafe(try!(reader.read_be_u32()));
-        offset += 4;
-        let _ = try!(reader.read_exact(ext_size as uint));
-        offset += ext_size;
+        tag.extended_header = Some(try!(self::ExtendedHeader::parse(&mut reader, &mut offset)));
     }
 
-    while offset < tag.size + 10 {
+    while offset < tag.size as usize + 10 {
         let (bytes_read, mut frame) = match Frame::read_from(reader, tag.version()) {
             Ok(opt) => match opt {
                 Some(frame) => frame,
@@ -280,13 +355,13 @@ pub fn read_tag<R: Reader>(reader: &mut R) -> TagResult<Tag> {
             }
         };
 
-        frame.offset = offset;
+        frame.offset = offset as u32;
         tag.frames.push(frame);
 
-        offset += bytes_read;
+        offset += bytes_read as usize;
     }
 
-    tag.offset = offset;
+    tag.offset = offset as u32;
     tag.modified_offset = tag.offset;
 
     Ok(tag)
@@ -297,13 +372,14 @@ impl Tag {
     /// Create a new ID3v2.4 tag with no frames. 
     #[inline]
     pub fn new() -> Tag {
-        Tag { 
+        Tag {
             version: Version::V4,
             flags: TagFlags::new(Version::V4),
             frames: Vec::new(),
             size: 0,
             offset: 0,
             modified_offset: 0,
+            extended_header: None,
         }
     }
 
@@ -460,8 +536,8 @@ impl Tag {
     /// use id3::frame::Id;
     ///
     /// let mut tag = id3v2::Tag::new();
-    /// tag.add_text_frame(Id::V4(b!("TCON")), "Metal");
-    /// assert_eq!(tag.get_frame_by_id("TCON").unwrap().content.text().as_slice(), "Metal");
+    /// tag.add_text_frame(Id::V4(*b"TCON"), "Metal");
+    /// assert_eq!(&tag.get_frame_by_id("TCON").unwrap().content.text(), "Metal");
     /// ```
     #[inline]
     pub fn add_text_frame(&mut self, id: frame::Id, text: &str) -> bool {
@@ -484,7 +560,7 @@ impl Tag {
     ///
     /// let mut tag = id3v2::Tag::new();
     /// tag.add_text_frame_enc("TRCK", "1/13", UTF16);
-    /// assert_eq!(tag.get_frame_by_id("TRCK").unwrap().content.text().as_slice(), "1/13");
+    /// assert_eq!(&tag.get_frame_by_id("TRCK").unwrap().content.text(), "1/13");
     /// ```
     /*
     //TODO(sp3d): find a more type-safe way to encode this
@@ -523,7 +599,7 @@ impl Tag {
     pub fn remove_frames_by_id(&mut self, id: frame::Id) {
         let mut modified_offset = self.modified_offset;
         {
-            let set_modified_offset = |offset: u32| {
+            let mut set_modified_offset = |offset: u32| {
                 if offset != 0 {
                     modified_offset = min(modified_offset, offset);
                 }
@@ -541,8 +617,8 @@ impl Tag {
     /// textual.
     pub fn text_frame_text(&self, id: frame::Id) -> Option<String> {
         match self.get_frame_by_id(id) {
-            Some(frame) => match frame.fields.as_slice() {
-                [Field::TextEncoding(encoding), Field::String(ref text)] => util::string_from_encoding(encoding, text.as_slice()),
+            Some(frame) => match &*frame.fields {
+                [Field::TextEncoding(encoding), Field::String(ref text)] => util::string_from_encoding(encoding, &text),
                 _ => None
             },
             None => None
@@ -563,26 +639,26 @@ impl Tag {
     ///
     /// let mut frame = Frame::new("TXXX");
     /// frame.fields = ExtendedTextContent(frame::ExtendedText { 
-    ///     key: "key1".into_string(),
-    ///     value: "value1".into_string()
+    ///     key: "key1".to_owned(),
+    ///     value: "value1".to_owned()
     /// });
     /// tag.add_frame(frame);
     ///
     /// let mut frame = Frame::new("TXXX");
     /// frame.fields = ExtendedTextContent(frame::ExtendedText { 
-    ///     key: "key2".into_string(),
-    ///     value: "value2".into_string()
+    ///     key: "key2".to_owned(),
+    ///     value: "value2".to_owned()
     /// }); 
     /// tag.add_frame(frame);
     ///
     /// assert_eq!(tag.txxx().len(), 2);
-    /// assert!(tag.txxx().contains(&("key1".into_string(), "value1".into_string())));
-    /// assert!(tag.txxx().contains(&("key2".into_string(), "value2".into_string())));
+    /// assert!(tag.txxx().contains(&("key1".to_owned(), "value1".to_owned())));
+    /// assert!(tag.txxx().contains(&("key2".to_owned(), "value2".to_owned())));
     /// ```
     pub fn txxx(&self) -> Vec<(String, String)> {
         let mut out = Vec::new();
         for frame in self.get_frames_by_id(self.version().txxx_id()).iter() {
-            match frame.fields.as_slice() {
+            match &frame.fields {
                 //TODO(sp3d): rebuild this on top of fields
                 //ExtendedTextContent(ref ext) => out.push((ext.key.clone(), ext.value.clone())),
                 _ => { }
@@ -604,8 +680,8 @@ impl Tag {
     /// tag.add_txxx("key2", "value2");
     ///
     /// assert_eq!(tag.txxx().len(), 2);
-    /// assert!(tag.txxx().contains(&("key1".into_string(), "value1".into_string())));
-    /// assert!(tag.txxx().contains(&("key2".into_string(), "value2".into_string())));
+    /// assert!(tag.txxx().contains(&("key1".to_owned(), "value1".to_owned())));
+    /// assert!(tag.txxx().contains(&("key2".to_owned(), "value2".to_owned())));
     /// ```
     #[inline]
     //pub fn add_txxx<E: Encoding>(&mut self, key: EncodedString<E>, value: EncodedString<E>) {
@@ -627,21 +703,21 @@ impl Tag {
     /// tag.add_txxx_enc("key2", "value2", UTF16);
     ///
     /// assert_eq!(tag.txxx().len(), 2);
-    /// assert!(tag.txxx().contains(&("key1".into_string(), "value1".into_string())));
-    /// assert!(tag.txxx().contains(&("key2".into_string(), "value2".into_string())));
+    /// assert!(tag.txxx().contains(&("key1".to_owned(), "value1".to_owned())));
+    /// assert!(tag.txxx().contains(&("key2".to_owned(), "value2".to_owned())));
     /// ```
     //TODO(sp3d): there has to be a better way of dealing with encoded strings!
     pub fn add_txxx_enc(&mut self, key: &str, value: &str, encoding: Encoding) {
-        let key = key.into_string();
+        let key = key.to_owned();
 
-        self.remove_txxx(Some(key.as_slice()), None);
+        self.remove_txxx(Some(&key), None);
 
         let mut frame = Frame::new(self.version().txxx_id());
         frame.set_encoding(encoding);
         //TODO(sp3d): rebuild this on top of fields
         /*frame.fields = ExtendedTextContent(frame::ExtendedText { 
             key: key, 
-            value: value.into_string() 
+            value: value.to_owned() 
         });*/
         
         self.frames.push(frame);
@@ -684,11 +760,11 @@ impl Tag {
             let mut val_match = false;
 
             if frame.id == id {
-                match frame.fields.as_slice() {
+                match &*frame.fields {
                     [Field::TextEncoding(_), Field::String(ref f_key), Field::String(ref f_val)] => {
                         //TODO(sp3d): checking byte equality is wrong; encodings need to be considered
-                        key_match = key.unwrap_or("").as_bytes() == f_key.as_slice();
-                        val_match = val.unwrap_or("").as_bytes() == f_val.as_slice();
+                        key_match = key.unwrap_or("").as_bytes() == &**f_key;
+                        val_match = val.unwrap_or("").as_bytes() == &**f_val;
                     },
                     _ => {
                         // remove frames that we can't parse
@@ -733,7 +809,7 @@ impl Tag {
         //TODO(sp3d): rebuild this on top of fields
         let mut pictures = Vec::new();
         for frame in self.get_frames_by_id(self.version().picture_id()).iter() {
-            match frame.fields.as_slice() {
+            match &frame.fields {
                 _ => { }
             }
         }
@@ -752,7 +828,7 @@ impl Tag {
     /// tag.add_picture("image/jpeg", Other, vec!());
     /// tag.add_picture("image/png", Other, vec!());
     /// assert_eq!(tag.pictures().len(), 1);
-    /// assert_eq!(tag.pictures()[0].mime_type.as_slice(), "image/png");
+    /// assert_eq!(&tag.pictures()[0].mime_type, "image/png");
     /// ```
     #[inline]
     pub fn add_picture(&mut self, mime_type: &str, picture_type: PictureType, data: Vec<u8>) {
@@ -772,7 +848,7 @@ impl Tag {
     /// tag.add_picture_enc("image/jpeg", Other, "", vec!(), UTF16);
     /// tag.add_picture_enc("image/png", Other, "", vec!(), UTF16);
     /// assert_eq!(tag.pictures().len(), 1);
-    /// assert_eq!(tag.pictures()[0].mime_type.as_slice(), "image/png");
+    /// assert_eq!(&tag.pictures()[0].mime_type, "image/png");
     /// ```
     pub fn add_picture_enc(&mut self, mime_type: &str, picture_type: PictureType, description: &str, data: Vec<u8>, encoding: Encoding) {
         //TODO(sp3d): rebuild this on top of fields
@@ -783,9 +859,9 @@ impl Tag {
 
         frame.set_encoding(encoding);
         frame.fields = PictureContent(Picture { 
-            mime_type: mime_type.into_string(), 
+            mime_type: mime_type.to_owned(), 
             picture_type: picture_type, 
-            description: description.into_string(), 
+            description: description.to_owned(), 
             data: data 
         });
 
@@ -815,7 +891,7 @@ impl Tag {
         let id = self.version().picture_id();
         self.frames.retain(|frame| {
             if frame.id == id {
-                match frame.fields.as_slice() {
+                match &frame.fields {
                     //TODO(sp3d): rebuild this on top of fields
                     //PictureContent(ref picture) => picture,
                     _ => return false
@@ -847,28 +923,28 @@ impl Tag {
     ///
     /// let mut frame = Frame::new("COMM");
     /// frame.fields = CommentContent(frame::Comment {
-    ///     lang: "eng".into_string(),
-    ///     description: "key1".into_string(),
-    ///     text: "value1".into_string()
+    ///     lang: "eng".to_owned(),
+    ///     description: "key1".to_owned(),
+    ///     text: "value1".to_owned()
     /// });
     /// tag.add_frame(frame);
     ///
     /// let mut frame = Frame::new("COMM");
     /// frame.fields = CommentContent(frame::Comment { 
-    ///     lang: "eng".into_string(),
-    ///     description: "key2".into_string(),
-    ///     text: "value2".into_string()
+    ///     lang: "eng".to_owned(),
+    ///     description: "key2".to_owned(),
+    ///     text: "value2".to_owned()
     /// });
     /// tag.add_frame(frame);
     ///
     /// assert_eq!(tag.comments().len(), 2);
-    /// assert!(tag.comments().contains(&("key1".into_string(), "value1".into_string())));
-    /// assert!(tag.comments().contains(&("key2".into_string(), "value2".into_string())));
+    /// assert!(tag.comments().contains(&("key1".to_owned(), "value1".to_owned())));
+    /// assert!(tag.comments().contains(&("key2".to_owned(), "value2".to_owned())));
     /// ```
     pub fn comments(&self) -> Vec<(String, String)> {
         let mut out = Vec::new();
         for frame in self.get_frames_by_id(self.version().comment_id()).iter() {
-            match frame.fields.as_slice() {
+            match &frame.fields {
                 //TODO(sp3d): rebuild this on top of fields
                 /*CommentContent(ref comment) => out.push((comment.description.clone(), 
                                                          comment.text.clone())),*/
@@ -891,8 +967,8 @@ impl Tag {
     /// tag.add_comment("key2", "value2");
     ///
     /// assert_eq!(tag.comments().len(), 2);
-    /// assert!(tag.comments().contains(&("key1".into_string(), "value1".into_string())));
-    /// assert!(tag.comments().contains(&("key2".into_string(), "value2".into_string())));
+    /// assert!(tag.comments().contains(&("key1".to_owned(), "value1".to_owned())));
+    /// assert!(tag.comments().contains(&("key2".to_owned(), "value2".to_owned())));
     /// ```
     #[inline]
     pub fn add_comment(&mut self, description: &str, text: &str) {
@@ -913,22 +989,22 @@ impl Tag {
     /// tag.add_comment_enc("eng", "key2", "value2", UTF16);
     ///
     /// assert_eq!(tag.comments().len(), 2);
-    /// assert!(tag.comments().contains(&("key1".into_string(), "value1".into_string())));
-    /// assert!(tag.comments().contains(&("key2".into_string(), "value2".into_string())));
+    /// assert!(tag.comments().contains(&("key1".to_owned(), "value1".to_owned())));
+    /// assert!(tag.comments().contains(&("key2".to_owned(), "value2".to_owned())));
     /// ```
     pub fn add_comment_enc(&mut self, lang: &str, description: &str, text: &str, encoding: Encoding) {
-        let description = description.into_string();
+        let description = description.to_owned();
 
-        self.remove_comment(Some(description.as_slice()), None);
+        self.remove_comment(Some(&description), None);
 
         let mut frame = Frame::new(self.version().comment_id());
 
         //TODO(sp3d): rebuild this on top of fields
         /*frame.set_encoding(encoding);
         frame.fields = CommentContent(frame::Comment { 
-            lang: lang.into_string(), 
+            lang: lang.to_owned(), 
             description: description, 
-            text: text.into_string() 
+            text: text.to_owned() 
         });*/
        
         self.frames.push(frame);
@@ -971,17 +1047,17 @@ impl Tag {
             let mut text_match = false;
 
             if frame.id == id {
-                match frame.fields.as_slice() {
+                match &frame.fields {
                     //TODO(sp3d): rebuild this on top of fields
                     /*
                     CommentContent(ref comment) =>  {
                         match description {
-                            Some(s) => description_match = s == comment.description.as_slice(),
+                            Some(s) => description_match = s == &comment.description(),
                             None => description_match = true
                         }
 
                         match text {
-                            Some(s) => text_match = s == comment.text.as_slice(),
+                            Some(s) => text_match = s == &comment.text,
                             None => text_match = true 
                         }
                     },*/
@@ -1012,7 +1088,7 @@ impl Tag {
     ///
     /// let mut tag = FileTags::from_tags(None, Some(id3v2::Tag::new()));
     /// tag.v2.as_mut().unwrap().set_artist_enc("artist", UTF16);
-    /// assert_eq!(tag.artist().unwrap().as_slice(), "artist");
+    /// assert_eq!(&tag.artist().unwrap(), "artist");
     /// ```
     #[inline]
     pub fn set_artist_enc(&mut self, artist: &str, encoding: Encoding) {
@@ -1030,12 +1106,12 @@ impl Tag {
     ///
     /// let mut tag = FileTags::from_tags(None, Some(id3v2::Tag::new()));
     /// tag.v2.as_mut().unwrap().set_album_artist_enc("album artist", UTF16);
-    /// assert_eq!(tag.album_artist().unwrap().as_slice(), "album artist");
+    /// assert_eq!(&tag.album_artist().unwrap(), "album artist");
     /// ```
     #[inline]
     pub fn set_album_artist_enc(&mut self, album_artist: &str, encoding: Encoding) {
-        self.remove_frames_by_id(Id::V3(b!("TSOP")));
-        self.remove_frames_by_id(Id::V4(b!("TSOP")));
+        self.remove_frames_by_id(Id::V3(*b"TSOP"));
+        self.remove_frames_by_id(Id::V4(*b"TSOP"));
         let id = self.version().album_artist_id();
         self.add_text_frame_enc(id, album_artist, encoding);
     }
@@ -1050,7 +1126,7 @@ impl Tag {
     ///
     /// let mut tag = FileTags::from_tags(None, Some(id3v2::Tag::new()));
     /// tag.v2.as_mut().unwrap().set_album_enc("album", UTF16);
-    /// assert_eq!(tag.album().unwrap().as_slice(), "album");
+    /// assert_eq!(&tag.album().unwrap(), "album");
     /// ```
     #[inline]
     pub fn set_album_enc(&mut self, album: &str, encoding: Encoding) {
@@ -1068,12 +1144,12 @@ impl Tag {
     ///
     /// let mut tag = FileTags::from_tags(None, Some(id3v2::Tag::new()));
     /// tag.v2.as_mut().unwrap().set_title_enc("title", UTF16);
-    /// assert_eq!(tag.title().unwrap().as_slice(), "title");
+    /// assert_eq!(&tag.title().unwrap(), "title");
     /// ```
     #[inline]
     pub fn set_title_enc(&mut self, title: &str, encoding: Encoding) {
-        self.remove_frames_by_id(Id::V3(b!("TSOT")));
-        self.remove_frames_by_id(Id::V4(b!("TSOT")));
+        self.remove_frames_by_id(Id::V3(*b"TSOT"));
+        self.remove_frames_by_id(Id::V4(*b"TSOT"));
         let id = self.version().title_id();
         self.add_text_frame_enc(id, title, encoding);
     }
@@ -1088,7 +1164,7 @@ impl Tag {
     ///
     /// let mut tag = FileTags::from_tags(None, Some(id3v2::Tag::new()));
     /// tag.v2.as_mut().unwrap().set_genre_enc("genre", UTF16);
-    /// assert_eq!(tag.genre().unwrap().as_slice(), "genre");
+    /// assert_eq!(&tag.genre().unwrap(), "genre");
     /// ```
     #[inline]
     pub fn set_genre_enc(&mut self, genre: &str, encoding: Encoding) {
@@ -1109,24 +1185,24 @@ impl Tag {
     /// assert!(tag.year().is_none());
     ///
     /// let mut frame_valid = Frame::new("TYER");
-    /// frame_valid.content = TextContent("2014".into_string());
+    /// frame_valid.content = TextContent("2014".to_owned());
     /// tag.add_frame(frame_valid);
     /// assert_eq!(tag.year().unwrap(), 2014);
     ///
     /// tag.remove_frames_by_id("TYER");
     ///
     /// let mut frame_invalid = Frame::new("TYER");
-    /// frame_invalid.content = TextContent("nope".into_string());
+    /// frame_invalid.content = TextContent("nope".to_owned());
     /// tag.add_frame(frame_invalid);
     /// assert!(tag.year().is_none());
     /// ```
-    pub fn year(&self) -> Option<uint> {
+    pub fn year(&self) -> Option<usize> {
         let id = self.version().year_id();
         //TODO(sp3d): rebuild this on top of fields
         match self.get_frame_by_id(id) {
             Some(frame) => {
-                match frame.fields.as_slice() {
-                    //TextContent(ref text) => from_str(text.as_slice()),
+                match &frame.fields {
+                    //TextContent(ref text) => from_str(&text),
                     _ => None
                 }
             },
@@ -1145,9 +1221,9 @@ impl Tag {
     /// assert_eq!(tag.year().unwrap(), 2014);
     /// ```
     #[inline]
-    pub fn set_year(&mut self, year: uint) {
+    pub fn set_year(&mut self, year: usize) {
         let id = self.version().year_id();
-        self.add_text_frame_enc(id, format!("{}", year).as_slice(), Encoding::Latin1);
+        self.add_text_frame_enc(id, &format!("{}", year), Encoding::Latin1);
     }
 
     /// Sets the year (TYER) using the specified text encoding.
@@ -1162,9 +1238,9 @@ impl Tag {
     /// assert_eq!(tag.year().unwrap(), 2014);
     /// ```
     #[inline]
-    pub fn set_year_enc(&mut self, year: uint, encoding: Encoding) {
+    pub fn set_year_enc(&mut self, year: usize, encoding: Encoding) {
         let id = self.version().year_id();
-        self.add_text_frame_enc(id, format!("{}", year).as_slice(), encoding);
+        self.add_text_frame_enc(id, &format!("{}", year), encoding);
     }
 
     /// Returns the (track, total_tracks) tuple.
@@ -1172,9 +1248,9 @@ impl Tag {
         match self.get_frame_by_id(self.version().track_id()) {
             Some(frame) => {
                 //TODO(sp3d): rebuild this on top of fields
-                match frame.fields.as_slice() {
+                match &frame.fields {
                     /*TextContent(ref text) => {
-                        let split: Vec<&str> = text.as_slice().splitn(2, '/').collect();
+                        let split: Vec<&str> = text.splitn(2, '/').collect();
 
                         let total_tracks = if split.len() == 2 {
                             match from_str(split[1]) {
@@ -1216,7 +1292,7 @@ impl Tag {
         };
 
         let id = self.version().track_id();
-        self.add_text_frame_enc(id, text.as_slice(), encoding);
+        self.add_text_frame_enc(id, &text, encoding);
     }
 
 
@@ -1239,7 +1315,7 @@ impl Tag {
         };
 
         let id = self.version().track_id();
-        self.add_text_frame_enc(id, text.as_slice(), encoding);
+        self.add_text_frame_enc(id, &text, encoding);
     }
 
 
@@ -1253,7 +1329,7 @@ impl Tag {
     ///
     /// let mut tag = FileTags::from_tags(None, Some(id3v2::Tag::new()));
     /// tag.v2.as_mut().unwrap().set_lyrics_enc("eng", "description", "lyrics", UTF16);
-    /// assert_eq!(tag.lyrics().unwrap().as_slice(), "lyrics");
+    /// assert_eq!(&tag.lyrics().unwrap(), "lyrics");
     /// ```
     pub fn set_lyrics_enc(&mut self, lang: &str, description: &str, text: &str, encoding: Encoding) {
         let id = self.version().lyrics_id();
@@ -1264,9 +1340,9 @@ impl Tag {
         frame.set_encoding(encoding);
         //TODO(sp3d): rebuild this on top of fields
         /*frame.fields = LyricsContent(frame::Lyrics { 
-            lang: lang.into_string(), 
-            description: description.into_string(), 
-            text: text.into_string() 
+            lang: lang.to_owned(), 
+            description: description.to_owned(), 
+            text: text.to_owned() 
         });*/
         
         self.frames.push(frame);

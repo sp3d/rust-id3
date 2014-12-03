@@ -44,21 +44,16 @@
 #![crate_name = "id3"]
 #![crate_type = "dylib"]
 #![warn(missing_docs)]
-#![feature(macro_rules)]
-#![feature(globs)]
-#![feature(slicing_syntax)]
-#![feature(phase)]
-#[phase(plugin, link)] extern crate log;
+#![feature(plugin, slice_patterns, core, convert, collections, rustc_private)]
+#![plugin(phf_macros)]
 
-#[phase(plugin)]
-extern crate phf_mac;
 extern crate phf;
 
-#[phase(plugin)]
-extern crate id3_macros;
+#[macro_use]
+extern crate log;
+extern crate num;
 
-extern crate audiotag; 
-
+pub mod audiotag;
 pub use self::audiotag::{AudioTag, TagResult, TagError, ErrorKind};
 
 /// Utilities used for the data formats involved in reading/writing ID3 tags.
