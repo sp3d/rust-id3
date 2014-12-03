@@ -25,6 +25,7 @@ mod encoding;
 mod flags;
 mod stream;
 mod frameinfo;
+/// Atomic units which are composed to make up ID3v2 frames.
 pub mod field;
 
 /// The version of an ID3v2 tag to which a frame belongs, and the frame ID as
@@ -85,16 +86,17 @@ impl fmt::Show for Id {
     }
 }
 
-/// A structure representing an ID3 frame.
+/// An ID3v2 frame, containing an ID specifying its purpose/format and a set of fields which constitute its content.
 #[deriving(Show)]
 pub struct Frame {
     /// The frame identifier, namespaced to the ID3v2.x version to which the frame belongs.
     pub id: Id,
-    /// The frame flags.
+    /// Flags governing serialization and the frame's relationship to the ID3v2 tag as a whole.
     flags: FrameFlags,
     /// The parsed content of the frame.
     pub fields: Vec<Field>,
     /// The offset of this frame in the file from which it was loaded.
+    //TODO(sp3d): shouldn't this be offset in the tag, not file?
     pub offset: u32,
 }
 

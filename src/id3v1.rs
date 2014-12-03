@@ -161,7 +161,7 @@ fn write_zero_padded<W: Writer>(writer: &mut W, data: &[u8], offset: uint, len: 
 }
 
 impl Tag {
-    /// Creates a new ID3v1 tag with no information.
+    /// Create a new ID3v1 tag with no information.
     pub fn new() -> Tag {
         Tag {
             title: vec![], artist: vec![], album: vec![], year: Year::new(0).unwrap(), comment: vec![], track: 0,
@@ -179,7 +179,7 @@ impl Tag {
         self.start_time.seconds() > 0 ||
         self.end_time.seconds() > 0
     }
-    /// Writes the simple ID3 tag (128 bytes) into the given writer.
+    /// Write the simple ID3 tag (128 bytes) into the given writer.
     /// If write_track_number is true, the comment field will be truncated to 28 bytes and the removed two bytes will be used for a NUL and the track number.
     pub fn write<W: Writer>(&self, writer: &mut W, write_track_number: bool) -> IoResult<()> {
         use self::Fields::*;
@@ -198,7 +198,7 @@ impl Tag {
         try!(writer.write_u8(self.genre));
         Ok(())
     }
-    /// Writes the extended portion of an ID3v1 tag (227 bytes) into the given buffer. Returns false and does nothing else if the buffer's size is not 227.
+    /// Write the extended portion of an ID3v1 tag (227 bytes) into the given writer.
     pub fn write_extended<W: Writer>(&self, writer: &mut W) -> IoResult<()> {
         use self::Fields::*;
         use self::XFields::*;

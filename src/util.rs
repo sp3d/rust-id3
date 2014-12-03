@@ -17,7 +17,7 @@ pub fn encode_string(s: &str, encoding: Encoding) -> Vec<u8> {
     }
 }
 
-/// Returns the synchsafe varaiant of a `u32` value.
+/// Returns the synchsafe variant of a `u32` value.
 #[inline]
 pub fn synchsafe(n: u32) -> u32 {
     let mut x: u32 = n & 0x7F | (n & 0xFFFFFF80) << 1;
@@ -26,7 +26,7 @@ pub fn synchsafe(n: u32) -> u32 {
     x
 }
 
-/// Returns the unsynchsafe varaiant of a `u32` value.
+/// Returns the unsynchsafe variant of a `u32` value.
 #[inline]
 pub fn unsynchsafe(n: u32) -> u32 {
     (n & 0xFF | (n & 0xFF00) >> 1 | (n & 0xFF0000) >> 2 | (n & 0xFF000000) >> 3)

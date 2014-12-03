@@ -3,10 +3,12 @@ use self::frame::{Frame, Encoding, PictureType, Id};
 use self::frame::field::Field;
 use util;
 
+/// Tools for working with ID3v2 frames.
 pub mod frame;
+/// High-level, lossy, and simple accessors for basic tag content.
 pub mod simple;
 
-/// An ID3 tag containing metadata frames. 
+/// An ID3v2 tag containing metadata frames. 
 #[deriving(Show)]
 pub struct Tag {
     /// The version of the tag. The first byte represents the major version number, while the

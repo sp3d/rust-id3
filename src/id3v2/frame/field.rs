@@ -5,7 +5,7 @@ use std::num::FromPrimitive;
 use std::fmt;
 use util;
 
-/// The various types of primitive data which may be encoded in a field
+/// The various types of primitive data which may be encoded in a field.
 #[allow(missing_docs)]
 #[deriving(Show, PartialEq, Copy)]
 pub enum FieldType {
@@ -55,7 +55,7 @@ impl FieldType {
         ['e', 'a', 'A', 'a', 's', 'S', 's', 'l', 'f', 't', '1', '2', '3', '4', 'c', 'd', ][*self as uint]
     }
 
-    /// Returns a short name which describes what this kind of field is.
+    /// Get a short name which describes what this kind of field is.
     pub fn name(&self) -> &'static str { [
         "textencoding",
         "latin1 string",
@@ -103,7 +103,7 @@ pub struct Timestamp {
 }
 
 impl Timestamp {
-    /// Parses a string of the format YYYYMMDD into a timestamp with `Day` precision.
+    /// Parse a string of the format YYYYMMDD into a timestamp with `Day` precision.
     ///
     /// Returns `None` if MM or DD is out of bounds, or if parsing fails.
     fn parse_8char(s: &[u8]) -> Option<Timestamp> {
@@ -122,7 +122,7 @@ impl Timestamp {
     }*/
 }
 
-/// A variable-length integer, used to store, for example, playback counts
+/// A variable-length integer, used to store, for example, playback counts.
 #[deriving(PartialEq, Clone)]
 pub struct BigNum {
     data: Vec<u8>
@@ -153,7 +153,7 @@ impl fmt::Show for BigNum {
 }
 
 /// A parsed ID3v2 field, which is the atomic component from which frames are
-/// composed, and which stores one type of primitive or list of homogeneous primitives.
+/// composed, and which stores one primitive or a list of homogeneous string primitives.
 #[allow(missing_docs)]
 #[deriving(Show, PartialEq)]
 pub enum Field {
@@ -177,7 +177,7 @@ pub enum Field {
 }
 
 impl Field {
-    /// Writes the field to the given writer. If @unsync is true, any byte patterns
+    /// Write the field to the given writer. If @unsync is true, any byte patterns
     /// of the form "%11111111 111xxxxx" are written as "%11111111 00000000 111xxxxx".
     pub fn serialize<W: Writer>(&self, writer: &mut W, encoding: Option<Encoding>, is_last: bool, unsync: bool) -> IoResult<()> {
         use self::Field::*;
@@ -216,13 +216,13 @@ impl Field {
         Ok(())
     }
 
-    /// Reads a sequence of bytes until `delim_len` consecutive zero bytes are read
+    /// Read a sequence of bytes until `delim_len` consecutive zero bytes are read
     /// or max_len bytes are read, whichever comes first. Reads but discards the
     /// sequence of zero bytes.
     ///
     /// If an I/O error is encountered, the buffer is returned as it stands.
     ///
-    /// The value returned is a pair of (data, whether the delimiter was found)
+    /// The value returned is a pair of (data, whether the delimiter was found).
     #[inline]
     fn read_until_delim<R: Reader>(reader: &mut R, delim_len: Option<u8>, max_len: uint) -> (Vec<u8>, bool) {
         //TODO: is this slow? benchmark
@@ -257,7 +257,7 @@ impl Field {
         (buf, Some(consecutive) == delim_len)
     }
 
-    /// Attempts to read a field of the given type. If the field is malformed,
+    /// Attempt to read a field of the given type. If the field is malformed,
     /// writes the bytes which could not be parsed to the given writer, if any.
     pub fn parse<R: Reader, W: Writer>(reader: &mut R, ftype: FieldType, encoding: Option<Encoding>, len: uint, is_last: bool, unparsable: Option<&mut W>) -> IoResult<Field> {
         use std::slice::bytes;
