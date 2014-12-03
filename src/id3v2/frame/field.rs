@@ -121,34 +121,141 @@ impl Timestamp {
     }*/
 }
 
-/// A variable-length integer, used to store, for example, playback counts.
-#[derive(PartialEq, Clone)]
+/// A variable-length integer used to store, for example, playback counts.
+#[derive(PartialEq, Clone, Debug)]
 pub struct BigNum {
+    /// Two base-10 digits per limb; most significant limb at 'push' end of Vec.
     data: Vec<u8>
 }
 
 impl BigNum {
     /// Create a new bignum with the given data as its backing store.
-    pub fn new(data: Vec<u8>) -> BigNum {
+    pub fn new(mut data: Vec<u8>) -> BigNum {
+        BigNum::drop_leading_zeros(&mut data);
         BigNum {data: data}
     }
     /// Increments the value stored in the bignum by 1.
     pub fn incr(&mut self)
     {
-        //TODO(sp3d): implement
+        for i in &mut self.data
+        {
+            *i += 1;
+            if *i == 100 {
+                *i = 0;
+            } else {
+                return
+            }
+        }
+        //carry at the end of the loop
+        self.data.push(1);
+    }
+    //remove leading zero bytes
+    fn drop_leading_zeros(data: &mut Vec<u8>)
+    {
+        loop {
+            match data.pop()
+            {
+                None => {break},
+                Some(0) => {},
+                Some(n) => {data.push(n); break},
+            }
+        }
     }
 }
 impl ::std::str::FromStr for BigNum {
     type Err=();
     fn from_str(s: &str) -> Result<BigNum, ()>
     {
-        Err(panic!("not implemented"))
+        let mut ones: Option<u8> = None;
+        let mut n = BigNum::new(vec![]);
+        for i in s.chars().rev() {
+            match i.to_digit(10) {
+                Some(d) => match ones {
+                    Some(o) => {ones = None; n.data.push(o+10*d as u8)},
+                    None => {ones = Some(d as u8)},
+                },
+                None => return Err(()),
+            };
+        }
+        if let Some(o) = ones {
+            n.data.push(o);
+        }
+        BigNum::drop_leading_zeros(&mut n.data);
+        Ok(n)
     }
 }
-impl fmt::Debug for BigNum {
+impl fmt::Display for BigNum {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result
     {
-        panic!("not implemented")
+        if self.data.len() == 0 {
+            0.fmt(fmt)
+        } else {
+            let nn = self.data[self.data.len()-1];
+            try!(nn.fmt(fmt));
+            let mut iter = self.data.iter().rev();
+            iter.next();//skip the first digit
+            for i in iter {
+                try!(write!(fmt, "{:02}", i));
+            }
+            Ok(())
+        }
+    }
+}
+
+#[test]
+fn test_bignum_create() {
+    assert_eq!(BigNum::new(vec![]), BigNum::new(vec![0]));
+    assert_eq!(BigNum::new(vec![0, 0, 0, 0]), BigNum::new(vec![0]));
+    assert_eq!(BigNum::new(vec![0]), BigNum::new(vec![0]));
+}
+
+#[test]
+fn test_bignum_parse() {
+    assert_eq!(BigNum::new(vec![0]), "".parse::<BigNum>().unwrap());
+    assert_eq!(BigNum::new(vec![0]), "0".parse::<BigNum>().unwrap());
+    assert_eq!(BigNum::new(vec![0]), "00".parse::<BigNum>().unwrap());
+    assert_eq!(BigNum::new(vec![1]), "1".parse::<BigNum>().unwrap());
+    assert_eq!(BigNum::new(vec![10]), "10".parse::<BigNum>().unwrap());
+    assert_eq!(BigNum::new(vec![95]), "95".parse::<BigNum>().unwrap());
+    assert_eq!(BigNum::new(vec![99]), "99".parse::<BigNum>().unwrap());
+    assert_eq!(BigNum::new(vec![23, 1]), "123".parse::<BigNum>().unwrap());
+    assert_eq!(BigNum::new(vec![67, 45, 23, 1]), "1234567".parse::<BigNum>().unwrap());
+    assert_eq!(BigNum::new(vec![67, 45, 23]), "0234567".parse::<BigNum>().unwrap());
+}
+
+#[test]
+fn test_bignum_print() {
+    assert_eq!(BigNum::new(vec![0]).to_string(), "0");
+    assert_eq!(BigNum::new(vec![99]).to_string(), "99");
+    assert_eq!(BigNum::new(vec![04, 32]).to_string(), "3204");
+    assert_eq!(BigNum::new(vec![00, 1]).to_string(), "100");
+    assert_eq!(BigNum::new(vec![00, 00, 1]).to_string(), "10000");
+    assert_eq!(BigNum::new(vec![00, 00, 1, 00]).to_string(), "10000");
+}
+
+#[test]
+fn test_bignum_incr() {
+    let mut a = BigNum::new(vec![0]);
+    assert_eq!(a, BigNum::new(vec![0]));
+
+    a.incr();
+    assert_eq!(a, BigNum::new(vec![1]));
+
+    a.incr();
+    assert_eq!(a, BigNum::new(vec![2]));
+
+    let mut b = BigNum::new(vec![99]);
+    b.incr();
+    assert_eq!(b, BigNum::new(vec![00, 1]));
+}
+
+#[test]
+fn test_bignum_roundtrip() {
+    let mut x = "0009954".parse::<BigNum>().unwrap();
+    assert_eq!(x.to_string(), "9954");
+    for i in 1..50 {
+        x.incr();
+        assert_eq!(x.to_string(), (9954+i).to_string());
     }
 }
 
