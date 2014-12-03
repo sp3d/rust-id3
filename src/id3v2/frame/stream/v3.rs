@@ -61,7 +61,7 @@ impl FrameStream for FrameV3 {
             panic!("internal error: writing v2.3 frame but frame ID is not v2.3!");
         }
         try!(writer.write(util::u32_to_bytes(content_size).as_slice()));
-        try!(writer.write(frame.flags.to_bytes(0x3).as_slice()))
+        try!(writer.write(frame.flags.to_bytes(0x3).as_slice()));
         if frame.flags.compression {
             try!(writer.write(util::u32_to_bytes(decompressed_size).as_slice()));
         }

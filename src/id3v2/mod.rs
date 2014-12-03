@@ -66,8 +66,8 @@ impl fmt::Show for TagFlags {
         try!(fmt.write(b"{"));
         for i in [Unsynchronization, ExtendedHeader, Experimental, Footer, Compression].iter() {
             if self.get(*i) {
-                try!(i.fmt(fmt))
-                try!(fmt.write(b" "))
+                try!(i.fmt(fmt));
+                try!(fmt.write(b" "));
             }
         }
         fmt.write(b"}")
@@ -160,7 +160,7 @@ impl Version {
         }
     }
 }
-))
+));
 
 impl Version {
     /// Returns the way this ID3v2 version is encoded in an ID3 tag.
@@ -183,17 +183,17 @@ impl Version {
     }
 }
 // Frame ID Querying {{{
-    id_func!(artist_id, "TP1", "TPE1")
-    id_func!(album_artist_id, "TP2", "TPE2")
-    id_func!(album_id, "TAL", "TALB")
-    id_func!(title_id, "TT2", "TIT2")
-    id_func!(genre_id, "TCO", "TCON")
-    id_func!(year_id, "TYE", "TYER")
-    id_func!(track_id, "TRK", "TRCK")
-    id_func!(lyrics_id, "ULT", "USLT")
-    id_func!(picture_id, "PIC", "APIC")
-    id_func!(comment_id, "COM", "COMM")
-    id_func!(txxx_id, "TXX", "TXXX")
+    id_func!(artist_id, "TP1", "TPE1");
+    id_func!(album_artist_id, "TP2", "TPE2");
+    id_func!(album_id, "TAL", "TALB");
+    id_func!(title_id, "TT2", "TIT2");
+    id_func!(genre_id, "TCO", "TCON");
+    id_func!(year_id, "TYE", "TYER");
+    id_func!(track_id, "TRK", "TRCK");
+    id_func!(lyrics_id, "ULT", "USLT");
+    id_func!(picture_id, "PIC", "APIC");
+    id_func!(comment_id, "COM", "COMM");
+    id_func!(txxx_id, "TXX", "TXXX");
 // }}}
 
 /// Checks for presence of the signature indicating an ID3v2 tag at the reader's current offset.

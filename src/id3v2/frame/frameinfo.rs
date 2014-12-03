@@ -15,7 +15,7 @@ is intended to be dropped on tag modification, or if it's obsolete, or so on */
 //    flags: FrameProcessingFlags
 }
 
-macro_rules! frame_info(($fields: expr, $desc: expr) => (FrameInfo {fields: {const _F: &'static [FieldType] = &$fields; _F}, desc: $desc}))
+macro_rules! frame_info(($fields: expr, $desc: expr) => (FrameInfo {fields: {const _F: &'static [FieldType] = &$fields; _F}, desc: $desc}));
 
 //TODO: see if String is the right type for "<textstring> $00 ($00)"
 static FRAME_INFO_V2: phf::Map<[u8, ..3], FrameInfo<'static>> = phf_map! {
