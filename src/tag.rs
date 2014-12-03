@@ -28,8 +28,6 @@ pub struct FileTags {
     pub path: Option<PathBuf>,
     /// Indicates if the path that we are writing to is not the same as the path we read from.
     path_changed: bool,
-    /// Indicates if when writing, an ID3v1 tag should be removed.
-    remove_v1: bool
 }
 
 impl FileTags
@@ -37,7 +35,7 @@ impl FileTags
     /// Create a FileTags structure from pre-parsed tags
     pub fn from_tags(v1: Option<id3v1::Tag>, v2: Option<id3v2::Tag>) -> FileTags
     {
-        FileTags {v1: v1, v2: v2, path: None, path_changed: false, remove_v1: false}
+        FileTags {v1: v1, v2: v2, path: None, path_changed: false}
     }
     pub fn from_seekable<R: Read+Seek>(reader: &mut R) -> io::Result<FileTags> {
         let v2 = id3v2::read_tag(reader).ok();
@@ -47,7 +45,7 @@ impl FileTags
             drop(reader.seek(SeekFrom::End(-id3v1::TAGPLUS_OFFSET)));
             id3v1::read_xtag(reader, v1);
         }
-        Ok(FileTags {v1: v1, v2: v2, path: None, path_changed: false, remove_v1: false, })
+        Ok(FileTags {v1: v1, v2: v2, path: None, path_changed: false})
     }
 }
 
@@ -62,7 +60,7 @@ impl FileTags {
         //let v2 = id3v2::read_tag(reader).ok();
         //let v1 = id3v1::read_tag(reader).ok();
         //TODO(sp3d): implement this
-        Ok(FileTags {v1: None, v2: None, path: None, path_changed: false, remove_v1: false, })
+        Ok(FileTags {v1: None, v2: None, path: None, path_changed: false})
     }
 
     fn write_to(&mut self, writer: &mut Write) -> TagResult<()> {
