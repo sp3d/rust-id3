@@ -16,7 +16,7 @@
 //!
 //! # Creating a new tag
 //!
-//! ```no_run
+//! ```
 //! use id3::id3v2;
 //! use id3::id3v2::frame::{Frame, Id};
 //! use id3::id3v2::Version::V4;
@@ -28,7 +28,7 @@
 //! v2.add_frame(frame);
 //! 
 //! // store into a file, replacing any old ID3 tags in it
-//! let mut tags = FileTags::from_tags(None, Some(v2));
+//! let tags = FileTags::from_tags(None, Some(v2));
 //! tags.store_at_path(&std::path::Path::new("music.mp3")).unwrap();
 //! ```
 

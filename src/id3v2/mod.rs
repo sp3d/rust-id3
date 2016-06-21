@@ -386,7 +386,6 @@ pub enum Version {
 }
 
 macro_rules! id_func (($name: ident, $v2_name: expr, $v34_name: expr) => (
-    #[inline]
 impl Version {
     #[allow(missing_docs)]
     pub fn $name(&self) -> frame::Id {
@@ -486,7 +485,7 @@ pub fn read_tag<R: Read>(mut reader: &mut R) -> Result<Option<Tag>, io::Error> {
     tag.flags = TagFlags::from_byte(read_u8!(reader), tag.version());
 
     if tag.flags.get(Unsynchronization) {
-        //TODO(unsynchronization)
+        panic!("TODO: ID3v2 unsynchronization is not yet implemented");
     } else if tag.flags.get(Compression) {
         panic!("ID3v2.2 compression is unsupported");
     }

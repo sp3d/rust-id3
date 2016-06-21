@@ -347,7 +347,7 @@ impl Field {
                 let mut byte = [0u8];
                 let _n_read = match {reader.read(&mut byte)} {
                     Ok(0) => break,
-                    Ok(1) => {buf.push_all(&byte); 1},
+                    Ok(1) => {buf.extend(&byte); 1},
                     Ok(n) => {panic!("read neither 0 nor 1 bytes into a 1-byte buffer!");},
                     Err(_) => return (buf, false),
                 };
@@ -372,7 +372,6 @@ impl Field {
     /// Attempt to read a field of the given type. If the field is malformed,
     /// writes the bytes which could not be parsed to the given writer, if any.
     pub fn parse<R: Read, W: Write>(reader: &mut R, ftype: FieldType, encoding: Option<Encoding>, len: usize, is_last: bool, unparsable: Option<&mut W>) -> io::Result<Field> {
-        use std::slice::bytes;
         use self::FieldType::*;
 
         let len_min: usize = match ftype {
@@ -471,22 +470,34 @@ impl Field {
             },//panic!("how the heck do you encode a stringlist even tho"),
             Language => {
                 let mut lang = [0u8; 3];
-                bytes::copy_memory(buf, &mut lang);
+                for (i, j) in &mut lang.iter_mut().zip(buf.iter())
+				{
+					*i = *j;
+				}
                 Ok(Field::Language(lang))
             },
             FrameIdV2 => {
                 let mut id = [0u8; 3];
-                bytes::copy_memory(buf, &mut id);
+                for (i, j) in &mut id.iter_mut().zip(buf.iter())
+				{
+					*i = *j;
+				}
                 Ok(Field::FrameIdV2(id))
             },
             FrameIdV34 => {
                 let mut id = [0u8; 4];
-                bytes::copy_memory(buf, &mut id);
+                for (i, j) in &mut id.iter_mut().zip(buf.iter())
+				{
+					*i = *j;
+				}
                 Ok(Field::FrameIdV34(id))
             },
             Date => {
                 let mut date = [0u8; 8];
-                bytes::copy_memory(buf, &mut date);
+                for (i, j) in &mut date.iter_mut().zip(buf.iter())
+				{
+					*i = *j;
+				}
                 Ok(Field::Date(Timestamp::parse_8char(&date).expect("Timestamp failed to parse!")))
             },
             Int8 => {

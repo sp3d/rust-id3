@@ -1,6 +1,6 @@
 extern crate std;
 
-use std::io::{self, Read, Write, Seek};
+use std::io::{self, Read, Write, Seek, SeekFrom};
 use std::fs::File;
 use std::path::Path;
 
@@ -84,8 +84,33 @@ impl FileTags
     /// the end of the file.
     pub fn store_at_path(&self, path: &Path) -> Result<usize, io::Error>
     {
+        let mut file = try!(File::open(path));
+        let reader = &mut file;
+
+        //read the old v2 tag and store its size
+        let audio_start = match id3v2::read_tag(reader)
+        {
+            Ok(Some(_tag)) => {panic!("{:?}\n", _tag); try!(reader.seek(SeekFrom::Current(0)))},
+            Ok(None) => 0,
+            Err(x) => try!(Err(x)),
+        };
+
+        let v1_offset = try!(reader.seek(SeekFrom::End(-id3v1::TAG_OFFSET)));
+        let audio_end = if try!(id3v1::probe_tag(reader)) {
+            let xtag_offset = try!(reader.seek(SeekFrom::End(-id3v1::TAGPLUS_OFFSET)));
+            if try!(id3v1::probe_xtag(reader))
+            {
+                xtag_offset
+            } else {
+                v1_offset
+            }
+        } else {
+            try!(reader.seek(SeekFrom::End(0)))
+        };
+
+        panic!("[{}-{})", audio_start, audio_end);
         // byte range initially occupied by audio in the file
-        //let audio_extent: Range<usize> = 
+        let audio_extent = audio_start..audio_end;
         //TODO(sp3d): implement
         Ok(0)
     }
