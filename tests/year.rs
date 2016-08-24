@@ -1,5 +1,3 @@
-#![feature(vec_push_all)]
-
 extern crate id3;
 
 use id3::id3v2;
@@ -25,7 +23,7 @@ fn utf8() {
 
     let mut data: Vec<u8> = Vec::new();
     data.push(Encoding::UTF8 as u8);
-    data.push_all(YEARSTR.as_bytes());
+    data.extend(YEARSTR.as_bytes());
     assert_eq!(frame.fields_to_bytes(), data);
 }
 
@@ -35,7 +33,7 @@ fn utf8_invalid() {
     let mut frame = Frame::new(ID);
     let mut data = Vec::new();
     data.push(Encoding::UTF8 as u8);
-    data.push_all(INVALID.as_bytes());
+    data.extend(INVALID.as_bytes());
     frame.fields = frame.parse_fields(&*data).unwrap();
     tag.add_frame(frame);
     assert!(tag.year().is_none());

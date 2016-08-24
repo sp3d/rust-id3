@@ -114,11 +114,11 @@ mod tests {
                     println!("`{}`, `{}`, `{:?}`", mime_type, description, encoding);
                     let mut data = Vec::new();
                     data.push(encoding as u8);
-                    data.push_all(format);
+                    data.extend(format);
                     data.push(picture_type as u8);
                     data.extend(bytes_for_encoding(description, encoding).into_iter());
                     data.extend(delim_for_encoding(encoding).into_iter());
-                    data.push_all(&*picture_data);
+                    data.extend(&*picture_data);
 
                     let fields = vec![
                         Field::TextEncoding(encoding),
@@ -154,12 +154,12 @@ mod tests {
                     println!("`{}`, `{}`, `{:?}`", mime_type, description, encoding);
                     let mut data = Vec::new();
                     data.push(encoding as u8);
-                    data.push_all(mime_type.as_bytes());
+                    data.extend(mime_type.as_bytes());
                     data.push(0x0);
                     data.push(picture_type as u8);
                     data.extend(bytes_for_encoding(description, encoding).into_iter());
                     data.extend(delim_for_encoding(encoding).into_iter());
-                    data.push_all(&*picture_data);
+                    data.extend(&*picture_data);
 
                     let fields = vec![
                         Field::TextEncoding(encoding),
@@ -192,7 +192,7 @@ mod tests {
                     println!("`{}`, `{}`, `{:?}`", description, comment, encoding);
                     let mut data = Vec::new();
                     data.push(encoding as u8);
-                    data.push_all(b"ENG");
+                    data.extend(b"ENG");
                     data.extend(bytes_for_encoding(description, encoding).into_iter());
                     data.extend(delim_for_encoding(encoding).into_iter());
                     data.extend(bytes_for_encoding(comment, encoding).into_iter());
@@ -222,7 +222,7 @@ mod tests {
             println!("`{:?}`", encoding);
             let mut data = Vec::new();
             data.push(encoding as u8);
-            data.push_all(b"ENG");
+            data.extend(b"ENG");
             data.extend(bytes_for_encoding(description, encoding).into_iter());
             data.extend(bytes_for_encoding(comment, encoding).into_iter());
             assert!(parsers::decode(DecoderRequest {
@@ -344,7 +344,7 @@ mod tests {
                     data.push(encoding as u8);
                     data.extend(bytes_for_encoding(description, encoding).into_iter());
                     data.extend(delim_for_encoding(encoding).into_iter());
-                    data.push_all(link.as_bytes());
+                    data.extend(link.as_bytes());
 
                     let fields = vec![
                         Field::TextEncoding(encoding),
@@ -372,7 +372,7 @@ mod tests {
             let mut data = Vec::new();
             data.push(encoding as u8);
             data.extend(bytes_for_encoding(description, encoding).into_iter());
-            data.push_all(link.as_bytes());
+            data.extend(link.as_bytes());
             assert!(parsers::decode(DecoderRequest {
                 id: V4(*b"WXXX"),
                 data: &*data,
@@ -391,7 +391,7 @@ mod tests {
                     println!("`{}`, `{}, `{:?}`", description, text, encoding);
                     let mut data = Vec::new();
                     data.push(encoding as u8);
-                    data.push_all(b"ENG");
+                    data.extend(b"ENG");
                     data.extend(bytes_for_encoding(description, encoding).into_iter());
                     data.extend(delim_for_encoding(encoding).into_iter());
                     data.extend(bytes_for_encoding(text, encoding).into_iter());
@@ -422,7 +422,7 @@ mod tests {
             println!("`{:?}`", encoding);
             let mut data = Vec::new();
             data.push(encoding as u8);
-            data.push_all(b"eng");
+            data.extend(b"eng");
             data.extend(bytes_for_encoding(description, encoding).into_iter());
             data.extend(bytes_for_encoding(lyrics, encoding).into_iter());
             assert!(parsers::decode(DecoderRequest {

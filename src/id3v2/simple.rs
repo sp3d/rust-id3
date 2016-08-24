@@ -103,7 +103,7 @@ impl Simple for Tag {
         let mut out = Vec::new();
         for frame in self.get_frames_by_id(self.version().txxx_id()).iter() {
             match &*frame.fields {
-                [Field::TextEncoding(_encoding), Field::String(ref k), Field::String(ref v)] => {
+                &[Field::TextEncoding(_encoding), Field::String(ref k), Field::String(ref v)] => {
                     //TODO(sp3d): convert encoding?
                     out.push((String::from_utf8(k.clone()).unwrap(), String::from_utf8(v.clone()).unwrap()));
                 },
@@ -205,7 +205,7 @@ impl Simple for Tag {
 
             if frame.id == id {
                 match &*frame.fields {
-                    [Field::TextEncoding(_), Field::String(ref f_key), Field::String(ref f_val)] => {
+                    &[Field::TextEncoding(_), Field::String(ref f_key), Field::String(ref f_val)] => {
                         //TODO(sp3d): checking byte equality is wrong; encodings need to be considered
                         key_match = key.unwrap_or("").as_bytes() == &**f_key;
                         val_match = val.unwrap_or("").as_bytes() == &**f_val;

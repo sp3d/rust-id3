@@ -798,7 +798,7 @@ impl Tag {
     pub fn text_frame_text(&self, id: frame::Id) -> Option<String> {
         match self.get_frame_by_id(id) {
             Some(frame) => match &*frame.fields {
-                [Field::TextEncoding(encoding), Field::String(ref text)] => util::string_from_encoding(encoding, &text),
+                &[Field::TextEncoding(encoding), Field::String(ref text)] => util::string_from_encoding(encoding, &text),
                 _ => None
             },
             None => None

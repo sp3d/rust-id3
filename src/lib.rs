@@ -35,7 +35,7 @@
 #![crate_name = "id3"]
 #![crate_type = "dylib"]
 #![warn(missing_docs)]
-#![feature(plugin, slice_patterns, rustc_private, vec_push_all, slice_bytes, str_utf16, iter_arith)]
+#![feature(plugin, slice_patterns, rustc_private)]
 #![plugin(phf_macros)]
 
 extern crate phf;

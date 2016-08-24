@@ -515,8 +515,8 @@ mod tests {
         println!("{:?}", frame.fields);
 
         let mut bytes = Vec::new();
-        bytes.push_all(&id);
-        bytes.push_all(&util::u32_to_bytes(data.len() as u32)[1..]);
+        bytes.extend(&id);
+        bytes.extend(&util::u32_to_bytes(data.len() as u32)[1..]);
         bytes.extend(data.into_iter());
 
         let mut writer = Vec::new();
@@ -540,9 +540,9 @@ mod tests {
         println!("{:?}", frame.fields);
 
         let mut bytes = Vec::new();
-        bytes.push_all(&id);
-        bytes.push_all(&util::u32_to_bytes(data.len() as u32));
-        bytes.push_all(&[0x00, 0x00]);
+        bytes.extend(&id);
+        bytes.extend(&util::u32_to_bytes(data.len() as u32));
+        bytes.extend(&[0x00, 0x00]);
         bytes.extend(data.into_iter());
 
         let mut writer = Vec::new();
@@ -568,9 +568,9 @@ mod tests {
         frame.fields = frame.parse_fields(&*data).unwrap();
 
         let mut bytes = Vec::new();
-        bytes.push_all(&id);
-        bytes.push_all(&util::u32_to_bytes(util::synchsafe(data.len() as u32)));
-        bytes.push_all(&[0x60, 0x00]);
+        bytes.extend(&id);
+        bytes.extend(&util::u32_to_bytes(util::synchsafe(data.len() as u32)));
+        bytes.extend(&[0x60, 0x00]);
         bytes.extend(data.into_iter());
 
         let mut writer = Vec::new();

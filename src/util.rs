@@ -201,7 +201,7 @@ pub fn string_to_utf16(text: &str) -> Vec<u8> {
 /// Returns a UTF-16BE vector representation of the string.
 pub fn string_to_utf16be(text: &str) -> Vec<u8> {
     let mut out: Vec<u8> = Vec::with_capacity(text.len() * 2);
-    for c in text.utf16_units() {
+    for c in text.encode_utf16() {
         out.push(((c & 0xFF00) >> 8) as u8);
         out.push((c & 0x00FF) as u8);
     }
@@ -212,7 +212,7 @@ pub fn string_to_utf16be(text: &str) -> Vec<u8> {
 /// Returns a UTF-16LE vector representation of the string.
 pub fn string_to_utf16le(text: &str) -> Vec<u8> {
     let mut out: Vec<u8> = Vec::with_capacity(text.len() * 2);
-    for c in text.utf16_units() {
+    for c in text.encode_utf16() {
         out.push((c & 0x00FF) as u8);
         out.push(((c & 0xFF00) >> 8) as u8);
     }
