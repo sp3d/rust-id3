@@ -12,5 +12,12 @@ git = "https://github.com/rust-lang/log.git"
 [dependencies.phf]
 git = "https://github.com/sfackler/rust-phf.git"
 
+[dependencies.phf_shared]
+git = "https://github.com/sfackler/rust-phf.git"
+
 [dependencies.phf_macros]
 git = "https://github.com/sfackler/rust-phf.git"
+
+[dependencies]
+flate2 = "0.2.14"
+byteorder = "*"

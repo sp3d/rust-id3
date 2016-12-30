@@ -18,7 +18,6 @@ pub enum FieldType {
     Language,
     FrameIdV2,
     FrameIdV34,
-    Date,
     Int8,
     Int16,
     Int24,
@@ -51,7 +50,7 @@ impl FieldType {
     /// non-list field type. Capital letters indicate "full" strings which may
     /// contain newlines.
     pub fn as_char(&self) -> char {
-        ['e', 'a', 'A', 'a', 's', 'S', 's', 'l', 'f', 't', '1', '2', '3', '4', 'c', 'd', ][*self as usize]
+        ['e', 'a', 'A', 'a', 's', 'S', 's', 'l', 'f', '1', '2', '3', '4', 'c', 'd', ][*self as usize]
     }
 
     /// Get a short name which describes what this kind of field is.
@@ -65,7 +64,6 @@ impl FieldType {
         "encoded strings",
         "language code",
         "frame ID",
-        "time/date",
         "byte",
         "int16",
         "int24",
@@ -74,51 +72,6 @@ impl FieldType {
         "data",
         ][*self as usize]
     }
-}
-
-/// Describes how precise a date is. The ID3v2.3 spec describes a subset of the
-/// ISO 8601 specification that may be truncated to year, month, day, hour,
-/// minute, or second precision, as denoted by this enumeration.
-#[allow(missing_docs)]
-#[derive(Debug, Copy, Clone, PartialEq)]
-pub enum DatePrecision {
-    Year,
-    Month,
-    Day,
-    Hour,
-    Minute,
-    Second
-}
-
-/// A parsed timestamp in the subset of ISO 8601 specified by the ID3v2 spec:
-/// "yyyy, yyyy-MM, yyyy-MM-dd, yyyy-MM-ddTHH, yyyy-MM-ddTHH:mm and
-/// yyyy-MM-ddTHH:mm:ss"
-#[derive(Debug, Copy, Clone, PartialEq)]
-pub struct Timestamp {
-    /// seconds since 0000-00-00T00:00:00
-    seconds: u64,
-    /// how precisely the time is specified
-    precision: DatePrecision,
-}
-
-impl Timestamp {
-    /// Parse a string of the format YYYYMMDD into a timestamp with `Day` precision.
-    ///
-    /// Returns `None` if MM or DD is out of bounds, or if parsing fails.
-    fn parse_8char(s: &[u8]) -> Option<Timestamp> {
-        //TODO(sp3d): implement
-        loop {}
-    }
-
-    /*    /// Format the year, month, and day components of a timestamp into a string
-    /// parsable by `parse_8char`.
-    ///
-    /// Returns `None` if the date cannot be represented in 8 chars (if the year is >9999).
-        fn print_8char(&str) -> Option<[u8; 8]> {
-        //TODO(sp3d): warn about precision loss?
-        //TODO(sp3d): implement
-        loop {}
-    }*/
 }
 
 /// A variable-length integer used to store, for example, playback counts.
@@ -274,7 +227,6 @@ pub enum Field {
     Language([u8; 3]),
     FrameIdV2([u8; 3]),
     FrameIdV34([u8; 4]),
-    Date(Timestamp),
     Int8(u8),
     Int16(u8, u8),
     Int24(u8, u8, u8),
@@ -311,10 +263,6 @@ impl Field {
             Language(ref lang) => try!(writer.write(&*lang)),
             FrameIdV2(ref id) => try!(writer.write(&*id)),
             FrameIdV34(ref id) => try!(writer.write(&*id)),
-            Date(ref ts) => {
-                panic!("timestamp -> 8char not implemented yet")
-                //try!(writer.write(&*ts)),
-            },
             Int8(b0) => try!(writer.write(&[b0])),
             Int16(b1, b0) => try!(writer.write(&[b1,b0])),
             Int24(b2, b1, b0) => try!(writer.write(&[b2,b1,b0])),
@@ -385,7 +333,6 @@ impl Field {
             Language => 3,
             FrameIdV2 => 3,
             FrameIdV34 => 4,
-            Date => 8,
             Int8 => 1,
             Int16 => 2,
             Int24 => 3,
@@ -491,14 +438,6 @@ impl Field {
 					*i = *j;
 				}
                 Ok(Field::FrameIdV34(id))
-            },
-            Date => {
-                let mut date = [0u8; 8];
-                for (i, j) in &mut date.iter_mut().zip(buf.iter())
-				{
-					*i = *j;
-				}
-                Ok(Field::Date(Timestamp::parse_8char(&date).expect("Timestamp failed to parse!")))
             },
             Int8 => {
                 Ok(Field::Int8(buf[0]))

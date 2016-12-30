@@ -1,10 +1,11 @@
 extern crate std;
-extern crate flate;
+extern crate flate2;
 
 pub use self::encoding::Encoding;
 pub use self::picture::PictureType;
 pub use self::flags::FrameFlags;
 pub use self::field::Field;
+use self::flate2::read::ZlibDecoder;
 
 pub use self::frameinfo::{frame_description, frame_format, convert_id_2_to_3,
 convert_id_3_to_2};
@@ -132,8 +133,8 @@ impl Frame {
     }
 
     /// Returns the size in bytes of this frame when serialized.
-    pub fn size(&self) -> u32 {
-        self.write_to(std::io::sink().by_ref()).unwrap()
+    pub fn size(&self, unsynchronize: bool) -> u32 {
+        self.write_to(std::io::sink().by_ref(), unsynchronize).unwrap()
     }
 
     /// Creates a new ID3v2 text frame with the specified version and identifier,
@@ -402,21 +403,21 @@ impl Frame {
     /// `Ok((length of padding, None))` is returned.
 
     #[inline]
-    pub fn read_from(reader: &mut Read, version: Version) -> Result<(u32, Option<Frame>), Error> {
+    pub fn read_from(reader: &mut Read, version: Version, unsynchronization: bool) -> Result<(u32, Option<Frame>), Error> {
         match version {
-            Version::V2 => FrameStream::read(reader, None::<FrameV2>),
-            Version::V3 => FrameStream::read(reader, None::<FrameV3>),
-            Version::V4 => FrameStream::read(reader, None::<FrameV4>),
+            Version::V2 => FrameStream::read(reader, None::<FrameV2>, unsynchronization),
+            Version::V3 => FrameStream::read(reader, None::<FrameV3>, unsynchronization),
+            Version::V4 => FrameStream::read(reader, None::<FrameV4>, unsynchronization),
         }
     }
 
     /// Attempts to write the frame to the writer.
     #[inline]
-    pub fn write_to(&self, writer: &mut Write) -> Result<u32, io::Error> {
+    pub fn write_to(&self, writer: &mut Write, unsynchronization: bool) -> Result<u32, io::Error> {
         match self.version() {
-            Version::V2 => FrameStream::write(writer, self, None::<FrameV2>),
-            Version::V3 => FrameStream::write(writer, self, None::<FrameV3>),
-            Version::V4 => FrameStream::write(writer, self, None::<FrameV4>),
+            Version::V2 => FrameStream::write(writer, self, None::<FrameV2>, unsynchronization),
+            Version::V3 => FrameStream::write(writer, self, None::<FrameV3>, unsynchronization),
+            Version::V4 => FrameStream::write(writer, self, None::<FrameV4>, unsynchronization),
         }
     }
 
@@ -434,7 +435,10 @@ impl Frame {
     /// Returns `Err` if the data is invalid for the frame type.
     pub fn parse_fields(&self, data: &[u8]) -> Result<Vec<Field>, Error> {
         let decompressed_opt = if self.flags.compression {
-            Some(flate::inflate_bytes_zlib(data).unwrap())
+            let mut decoder = ZlibDecoder::new(data);
+            let mut decompressed = Vec::new();
+            try!(decoder.read_to_end(&mut decompressed));
+            Some(decompressed)
         } else {
             None
         };
@@ -574,7 +578,7 @@ mod tests {
         bytes.extend(data.into_iter());
 
         let mut writer = Vec::new();
-        frame.write_to(&mut writer).unwrap();
+        frame.write_to(&mut writer, false).unwrap();
         assert_eq!(writer, bytes);
     }
 }

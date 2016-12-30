@@ -6,7 +6,7 @@ use util;
 
 pub struct FrameV2;
 impl FrameStream for FrameV2 {
-    fn read(reader: &mut Read, _: Option<FrameV2>) -> Result<(u32, Option<Frame>), Error> {
+    fn read(reader: &mut Read, _: Option<FrameV2>, unsynchronization: bool) -> Result<(u32, Option<Frame>), Error> {
         let id = id_or_padding!(reader, 3);
         debug!("reading {:?}", id); 
 
@@ -16,13 +16,16 @@ impl FrameStream for FrameV2 {
         let read_size = ((sizebytes[0] as u32) << 16) | ((sizebytes[1] as u32) << 8) | sizebytes[2] as u32;
 
         let mut data = vec![0; read_size as usize]; read_all!(reader, &mut *data);
+        if unsynchronization {
+            util::resynchronize(&mut data);
+        }
         frame.fields = try!(frame.parse_fields(&*data));
 
         Ok((6 + read_size, Some(frame)))
     }
 
-    fn write(writer: &mut Write, frame: &Frame, _: Option<FrameV2>) -> Result<u32, io::Error> {
-        let content_bytes = frame.fields_to_bytes();
+    fn write(writer: &mut Write, frame: &Frame, _: Option<FrameV2>, unsynchronization: bool) -> Result<u32, io::Error> {
+        let mut content_bytes = frame.fields_to_bytes();
         let content_size = content_bytes.len() as u32;
 
         if let Id::V2(id_bytes)=frame.id {
@@ -32,6 +35,9 @@ impl FrameStream for FrameV2 {
         }
 
         try!(writer.write(&util::u32_to_bytes(content_size)[1..]));
+        if unsynchronization {
+            util::unsynchronize(&mut content_bytes);
+        }
         try!(writer.write(&content_bytes));
 
         Ok(6 + content_size)

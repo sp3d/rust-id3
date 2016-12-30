@@ -1,6 +1,9 @@
+extern crate byteorder;
+
 use std::io::{self, Read, Write, Seek, SeekFrom};
 use num::Bounded;
 use std::fmt;
+use self::byteorder::{BigEndian, ReadBytesExt};
 
 /// The fields in an ID3v1 tag, including the "1.1" track number field.
 #[derive(Copy, Clone)]
@@ -308,14 +311,14 @@ pub fn read_tag<R: Read>(reader: &mut R) -> Result<Option<Tag>, io::Error> {
         let year_str=&mut [0u8; 4]; read_all!(reader, year_str);
         tag.year=parse_year(year_str);
         read_all_vec!(reader, tag.comment, Comment.length()-2);
-        let track_guard_byte=read_u8!(reader);
+        let track_guard_byte=try!(reader.read_u8());
         if track_guard_byte == 0 {
-            tag.track=read_u8!(reader);
+            tag.track=try!(reader.read_u8());
         } else {
             tag.comment.push(track_guard_byte);
-            tag.comment.push(read_u8!(reader));
+            tag.comment.push(try!(reader.read_u8()));
         }
-        tag.genre=read_u8!(reader);
+        tag.genre=try!(reader.read_u8());
         Ok(Some(tag))
     }
     else
@@ -340,7 +343,7 @@ pub fn read_xtag<R: Read>(reader: &mut R, tag: &mut Tag) -> Result<bool, io::Err
         maybe_read!(reader, tag.title, XTitle.length());
         maybe_read!(reader, tag.artist, XArtist.length());
         maybe_read!(reader, tag.album, XAlbum.length());
-        tag.speed = read_u8!(reader);
+        tag.speed = try!(reader.read_u8());
         maybe_read!(reader, tag.genre_str, Genre.length());
         let mut start_str=vec![]; maybe_read!(reader, start_str, Start.length());
         tag.start_time=parse_time(&*start_str);

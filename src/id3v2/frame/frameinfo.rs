@@ -125,7 +125,7 @@ static FRAME_INFO_V34: phf::Map<[u8; 4], FrameInfo<'static>> = phf_map! {
     [65, 80, 73, 67] => frame_info!([TextEncoding,Latin1,Int8,String,BinaryData,], "Attached picture"),
 
     [67, 79, 77, 77] => frame_info!([TextEncoding,Language,String,StringFull,], "Comments"),
-    [67, 79, 77, 82] => frame_info!([TextEncoding,Latin1,Date,Latin1,Int8,String,String,Latin1,BinaryData,], "Commercial frame"),
+    [67, 79, 77, 82] => frame_info!([TextEncoding,Latin1,Latin1,Latin1,Int8,String,String,Latin1,BinaryData,], "Commercial frame"),
 
     [69, 78, 67, 82] => frame_info!([Latin1,Int8,BinaryData,], "Encryption method registration"),
     [69, 84, 67, 79] => frame_info!([Int8,BinaryData,], "Event timing codes"),
@@ -139,7 +139,7 @@ static FRAME_INFO_V34: phf::Map<[u8; 4], FrameInfo<'static>> = phf_map! {
     [77, 67, 68, 73] => frame_info!([BinaryData,], "Music CD identifier"),
     [77, 76, 76, 84] => frame_info!([Int16,Int24,Int24,Int8,Int8,BinaryData,], "MPEG location lookup table"),
 
-    [79, 87, 78, 69] => frame_info!([TextEncoding,Latin1,Date,String,], "Ownership frame"),
+    [79, 87, 78, 69] => frame_info!([TextEncoding,Latin1,Latin1,String,], "Ownership frame"),
 
     [80, 82, 73, 86] => frame_info!([Latin1,BinaryData,], "Private frame"),
     [80, 67, 78, 84] => frame_info!([Int32Plus,], "Play counter"),

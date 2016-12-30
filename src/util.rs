@@ -46,31 +46,54 @@ macro_rules! read_at_least {
         }
     };
 }
-macro_rules! read_u8 {
-    ($reader:expr) => {
-        {
-            let mut byte=[0u8]; try!($reader.read(&mut byte));
-            byte[0]
+
+/// Undoes the changes done to a byte buffer by the unsynchronization scheme.
+pub fn resynchronize(buffer: &mut Vec<u8>) {
+    let mut discard_next_null_byte = false;
+    let mut i = 0;
+    while i < buffer.len() {
+        if buffer[i] == 0x00 && discard_next_null_byte {
+            buffer.remove(i);
         }
-    };
-}
-macro_rules! read_be_u16 {
-    ($reader:expr) => {
-        {
-            let mut data=[0u8; 2]; try!($reader.read(&mut data));
-            (data[1] as u16)|((data[0] as u16) << 8)
-        }
-    };
-}
-macro_rules! read_be_u32 {
-    ($reader:expr) => {
-        {
-            let mut data=[0u8; 4]; try!($reader.read(&mut data));
-            (data[3] as u32)|((data[2] as u32) << 8)|((data[1] as u32) << 16)|((data[0] as u32) << 24)
-        }
-    };
+        discard_next_null_byte = i < buffer.len() && buffer[i] == 0xFF;
+        i += 1;
+    }
 }
 
+/// Applies the unsynchronization scheme to a byte buffer.
+pub fn unsynchronize(buffer: &mut Vec<u8>) {
+    let mut repeat_next_null_byte = false;
+    let mut i = 0;
+    while i < buffer.len() {
+        if buffer[i] == 0x00 && repeat_next_null_byte {
+            buffer.insert(i, 0);
+            i += 1;
+        }
+        repeat_next_null_byte = buffer[i] == 0xFF;
+        i += 1;
+    }
+}
+
+//TODO: finish making this linear-time instead of quadratic
+/*/// Applies the unsynchronization scheme to a byte buffer.
+pub fn unsynchronize2(buffer: &mut Vec<u8>) {
+    let mut repeat_next_null_byte = false;
+    let unsync_count = buffer.iter().sum(|b| {
+        let inc = (buffer[i] == 0x00 && repeat_next_null_byte) as u32;
+        repeat_next_null_byte = buffer[i] == 0xFF;
+        inc
+    });
+    
+    let mut i = 0;
+    while i < buffer.len() {
+        if buffer[i] == 0x00 && repeat_next_null_byte {
+            buffer.insert(i, 0);
+            i += 1;
+        }
+        repeat_next_null_byte = buffer[i] == 0xFF;
+        i += 1;
+    }
+}*/
 
 /// Returns the converted to the given encoding. Characters which could not be
 /// represented in the target encoding are replaced with U+FFFD or '?'.

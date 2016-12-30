@@ -1,7 +1,12 @@
+extern crate byteorder;
+extern crate flate2;
+
 use std::io::{self, Read, Write};
 use std::io::ErrorKind::InvalidInput;
 use self::frame::{Frame, Encoding, Id};
 use self::frame::field::Field;
+
+use self::byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 
 pub use self::error::{Error, ErrorKind};
 
@@ -188,7 +193,7 @@ impl ExtendedHeader {
     pub fn write_to(&self, writer: &mut Write, version: Version) -> io::Result<u32> {
         let size = self.size() as u32;
         //TODO: verify endianness?
-        try!(writer.write(&util::u32_to_bytes(util::synchsafe(size))));
+        try!(writer.write_u32::<BigEndian>(util::synchsafe(size)));
         match version
         {
             Version::V2 => panic!("attempting to write extended header for an ID3v2.2 tag"),
@@ -207,7 +212,7 @@ impl ExtendedHeader {
     /// The version must be Version::V3 or Version::V4.
     pub fn parse<R: Read>(reader: &mut R, version: Version) -> io::Result<(ExtendedHeader, usize)> {
         let mut offset = 0;
-        let size = util::unsynchsafe(read_be_u32!(reader));
+        let size = util::unsynchsafe(try!(reader.read_u32::<BigEndian>()));
         offset += 4;
 
         //figure out how many bytes of flags to read
@@ -217,7 +222,7 @@ impl ExtendedHeader {
             Version::V3 => 2,
             Version::V4 => {
                 offset += 1;
-                read_u8!(reader)
+                try!(reader.read_u8())
             }
         };
 
@@ -226,7 +231,7 @@ impl ExtendedHeader {
         let mut bit_index = 0;
         for _ in 0..n_flag_bytes
         {
-            let flag_byte = read_u8!(reader);
+            let flag_byte = try!(reader.read_u8());
             offset += 1;
 
             for bit in 0..8//flag_byte.one_bits_from_msb()
@@ -245,7 +250,7 @@ impl ExtendedHeader {
         //read the payload, in (data_size, data) format, for each flag
         for flag in flags
         {
-            let data_size = read_u8!(reader) as u32;
+            let data_size = try!(reader.read_u8()) as u32;
             offset += 1;
 
             if size_remaining < data_size
@@ -482,15 +487,13 @@ pub fn read_tag<R: Read>(mut reader: &mut R) -> Result<Option<Tag>, io::Error> {
         _ => return Err(io::Error::new(InvalidInput, "unsupported ID3 tag version").into()),
     };
 
-    tag.flags = TagFlags::from_byte(read_u8!(reader), tag.version());
+    tag.flags = TagFlags::from_byte(try!(reader.read_u8()), tag.version());
 
-    if tag.flags.get(Unsynchronization) {
-        panic!("TODO: ID3v2 unsynchronization is not yet implemented");
-    } else if tag.flags.get(Compression) {
+    if tag.flags.get(Compression) {
         panic!("ID3v2.2 compression is unsupported");
     }
 
-    let tag_size = util::unsynchsafe(read_be_u32!(reader));
+    let tag_size = util::unsynchsafe(try!(reader.read_u32::<BigEndian>()));
 
     let mut offset = 10;
 
@@ -504,7 +507,7 @@ pub fn read_tag<R: Read>(mut reader: &mut R) -> Result<Option<Tag>, io::Error> {
     let mut padding_len = 0;
 
     while offset < tag_size as usize + 10 {
-        let frame = match Frame::read_from(reader, tag.version()) {
+        let frame = match Frame::read_from(reader, tag.version(), tag.flags.get(Unsynchronization)) {
             Ok((bytes_read, maybe_frame)) => {
                 offset += bytes_read as usize;
                 match maybe_frame {
@@ -554,17 +557,17 @@ impl Tag {
 
     /// Get the serialized size of the tag.
     #[inline]
-    pub fn size(&self) -> u32 {
-        10 + self.frames.iter().map(|x| x.size()).sum::<u32>()
+    pub fn size(&self, unsynchronization: bool) -> u32 {
+        10 + self.frames.iter().map(|x| x.size(unsynchronization)).sum::<u32>()
     }
 
     /// Serialize the ID3v2 tag to a writer. If successful, returns the number
     /// of bytes written.
-    pub fn write_to(&self, writer: &mut Write) -> Result<u32, io::Error> {
+    pub fn write_to(&self, writer: &mut Write, unsynchronization: bool) -> Result<u32, io::Error> {
         try!(writer.write(b"ID3"));
         try!(writer.write(&self.version().to_bytes()));
-        try!(writer.write(&[self.flags().to_byte()]));
-        try!(writer.write(&util::u32_to_bytes(u32::to_be(util::synchsafe(self.size())))));
+        try!(writer.write_u8(self.flags().to_byte()));
+        try!(writer.write_u32::<BigEndian>(util::synchsafe(self.size(unsynchronization))));
 
         let mut bytes_written = 10;
 
@@ -575,7 +578,7 @@ impl Tag {
 
         for frame in &self.frames {
             debug!("writing {:?}", frame.id);
-            bytes_written += try!(frame.write_to(writer));
+            bytes_written += try!(frame.write_to(writer, unsynchronization));
         }
         Ok(bytes_written)
     }

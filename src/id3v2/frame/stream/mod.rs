@@ -24,10 +24,10 @@ macro_rules! id_or_padding {
 /// A trait for reading and writing ID3v2 frames.
 pub trait FrameStream : Sized {
     /// Returns a tuple containing the number of bytes read and a frame. If the reader starts with padding, returns Ok(None).
-    fn read(reader: &mut Read, _: Option<Self>) -> Result<(u32, Option<Frame>), Error>;
+    fn read(reader: &mut Read, _: Option<Self>, unsynchronization: bool) -> Result<(u32, Option<Frame>), Error>;
 
     /// Attempts to write the frame to the writer.
-    fn write(writer: &mut Write, frame: &Frame, _: Option<Self>) -> Result<u32, io::Error>;
+    fn write(writer: &mut Write, frame: &Frame, _: Option<Self>, unsynchronization: bool) -> Result<u32, io::Error>;
 }
 
 mod v2;

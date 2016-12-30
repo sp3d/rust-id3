@@ -55,6 +55,6 @@ pub mod id3v2;
 mod filetags;
 
 /// Common functionality for handling ID3 tags in files.
-pub use filetags::FileTags;
+//pub use filetags::FileTags;
 
 mod parsers;
